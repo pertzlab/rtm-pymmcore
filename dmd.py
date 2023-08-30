@@ -140,9 +140,7 @@ class DMD():
         tagged_img = self.mmc.getTaggedImage() #TODO check if this is now fixed
         img_height = tagged_img.tags['Height']
         img_width = tagged_img.tags['Width']
-        img = tagged_img.pix.reshape(img_height, img_width)
-
-        
+        img = tagged_img.pix.reshape(img_height, img_width)        
         return img
 
 
@@ -259,7 +257,10 @@ class DMD():
             mask_warped = self.transform_img(mask, warp_mat)
             #display in dmd space and capture dmd in cameraspace
             self.display_mask(mask_warped)#, dmd_exposure_time, camera_exposure_time)
-            img = acq(self.mmc)
+            
+            self.mmc.snapImage()
+            img = self.mmc.getImage()
+
             
             #compare expected and result
             plt.axis([0, camera_height, 0, camera_width])   
@@ -273,4 +274,5 @@ class DMD():
                 axs[3].scatter(xy[0],xy[1],marker = marker_style, facecolors='none', edgecolors='green')
            #plt.show()
         return warp_mat
+
 
