@@ -1,9 +1,8 @@
-
 *.pyc
 *.log
+
 # Ignore all files in rtm-pymmcore-local, where local hardware information is stored
-rtm-pymmcore-local/*
+local/*
 
 # Except for the folder itself
-!rtm-pymmcore-local/
-local/local_config.yaml
+!local/
