@@ -1,0 +1,32 @@
+
+## Copy the local_config_template.yaml file to the rtm-pymmcore/rtm-pymmcore-local/ 
+#  directory and rename it to local_config.yaml
+#  Edit the local_config.yaml file to match your hardware configuration
+
+# SLM device name, "null" for local testing without SLM
+slm_device: null
+
+# Camera configuration
+camera: 'Camera'
+
+#Shutter configuration
+shutter: 'LED Shutter'
+
+#Focus configuration
+focus: 'Focus'
+
+#AutoFocus configuration
+autofocus: 'Autofocus'
+
+#XY stage configuration
+xy_stage: 'XY'
+
+#Z stage configuration
+z_stage: 'Z'
+
+# Arbitrary 3-level settings
+settings:
+  - device: Camera
+    properties:
+      - property: Binning
+        value: 2
