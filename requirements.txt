@@ -1,0 +1,10 @@
+opencv-python
+napari
+pymmcore
+pymmcore-plus
+useq-schema
+matplotlib
+pandas
+stardist
+tensorflow
+trackpy
