@@ -14,7 +14,7 @@ def load_config(mmc:pymmcore.CMMCore, config_file='/local/local_config.yaml'):
         None
     """
 
-    with open('./local/local_config.yaml', 'r') as file:
+    with open(config_file, 'r') as file:
         config = yaml.safe_load(file)
 
     # Set default devices in pymmcore
