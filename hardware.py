@@ -1,6 +1,7 @@
 import yaml
 import pymmcore
 # Load local_config.yaml file
+# TODO should we also store channels there?
 
 def load_config(mmc:pymmcore.CMMCore, config_file='/local/local_config.yaml'):
     """
