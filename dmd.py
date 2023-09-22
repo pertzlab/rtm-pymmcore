@@ -59,19 +59,16 @@ class DMD():
 
     def all_on(self):
         '''turn on projector all pixels for a long time
-        '''
-        self.mmc.getSLMExposure(self.name, 200000)
-        self.mmc.setProperty(self.name, 'OverlapMode', 'On')
-        self.mmc.setSLMPixelsTo(self.name, 1)
-        self.mmc.displaySLMImage(self.name)   
+                '''
+        self.mmc.setSLMPixelsTo(self.name,255)
+
 
     def all_off(self):
         '''turn off pixels
         '''
-        self.mmc.getSLMExposure(self.name, 1)
-        self.mmc.setProperty(self.name, 'OverlapMode', 'Off')
-        self.mmc.setSLMPixelsTo(self.name, 0)
-        self.mmc.displaySLMImage(self.name) 
+        self.mmc.setSLMPixelsTo(self.name,0)
+
+
 
     def upload_mask(self, mask):
         '''Converts np.array in shape of dmd into string, and uploades it to the dmd.
