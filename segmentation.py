@@ -71,7 +71,7 @@ class SegmentatorStardist(Segmentator):
         Run the stardist model on data and do post-processing (remove small cells)
         """
         img_normed =  csbdeep.utils.normalize(img,self.norm_min,self.norm_max)
-        labels, details = self.model.predict_instances(img)
+        labels, details = self.model.predict_instances(img_normed)
         if self.min_size>0:
             #remove cells below threshold
             labels = skimage.morphology.remove_small_objects(labels,min_size = self.min_size, connectivity =1)
