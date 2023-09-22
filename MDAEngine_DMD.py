@@ -15,7 +15,6 @@ class MDAEngine_DMD(MDAEngine):
     def __init__(self, dmd: DMD):
         self.dmd = dmd
         super().__init__(dmd.mmc)
-        self._mmc = dmd.mmc
 
     def exec_event(self, event: useq.MDAEvent) -> object:
         # do some custom pre-execution
