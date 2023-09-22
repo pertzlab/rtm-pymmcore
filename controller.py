@@ -42,7 +42,6 @@ class Analyzer:
 
         if img_type == ImgType.IMG_STIM:
             #stim image, store
-            print('storing stim image')
             store_img(img,metadata,'stim')
         #TODO remove print statement and return something useful
         return {"result": "STOP"}
@@ -87,6 +86,7 @@ class Controller:
             print(f"Current timestep: {timestep}")
         # extract the lines with the current timestep from the DF
             current_timestep_df = df_acquire[df_acquire['timestep'] == timestep]
+
             for index, row in current_timestep_df.iterrows():
                 fov : FOV = row['fov_object']
                 timestep = row['timestep']
@@ -95,21 +95,18 @@ class Controller:
                 channels_exposure = row['channels_exposure']
                 channel_stim = row['channel_stim']
                 channel_stim_exposure = row['channel_stim_exposure']
-                # copy the metadata from the DF TODO: automate this
-                metadata_dict : MetadataDict= { 'fov': fov, 
-                                                'img_type': ImgType.IMG_RAW,
-                                                'last_channel': channels[-1],
-                                                'timestep' : row['timestep'],
-                                                'time' : row['time'],
-                                                'time_experiment' : row['time_experiment'],
-                                                'fname' : f'{str(fov.index).zfill(3)}_{str(timestep).zfill(5)}',
-                                                'stim' : stim,
-                                                'channels' : channels,
-                                            }
+
+                if timestep > 0:
+                    fov.tracks = fov.tracks_queue.get(timeout=10) #wait max 10s for tracks
+
+                metadata_dict = dict(row)
+                metadata_dict['img_type']= ImgType.IMG_RAW
+                metadata_dict['last_channel']= channels[-1]
+                                            
                 if self._dmd != None:
                     metadata_dict['stim_mask'] = self._dmd.sample_mask_on,
                     
-                    ### Capture the raw image without DMD illumination
+                ### Capture the raw image without DMD illumination
                 for i,channel in enumerate(channels):
                     last_channel:bool = i == len(channels)-1
                     metadata_dict['last_channel'] = last_channel
@@ -124,6 +121,8 @@ class Controller:
                             min_start_time = row['time_experiment'],
                             exposure=channels_exposure[i]
                         )
+                    
+                    #add the event to the acquisition queue
                     self._queue.put(acquisition_event)
 
                 if stim:
@@ -148,5 +147,8 @@ class Controller:
                     self._queue.put(stimulation_event)   
 
         # Reached end of acquisition DF
+        for fov in df_acquire['fov_object'].unique():
+            fov.tracks = fov.tracks_queue.get(timeout=10) #wait max 10s for tracks
+
         # Put the stop event in the queue
         self._queue.put(self.STOP_EVENT)
