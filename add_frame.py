@@ -10,10 +10,11 @@ from utils import MetadataDict,ImgType
 import pandas as pd
 import time
 import os
+from utils import labels_to_particles
 
 def store_img(img:np.array,metadata:MetadataDict,folder:str,check_contrast:bool=False):
     """Take the image and store it accordingly. Check the metadata for FOV index and timestamp."""
-    fov = metadata['fov']
+    fov = metadata['fov_object']
     img_type = metadata['img_type']
     fname = metadata['fname']
     if img == []:
@@ -57,17 +58,15 @@ class ImageProcessingPipeline:
 
         metadata : MetadataDict = event.metadata
         
-        fov = metadata['fov']
-        df_old = fov.tracks_queue.get() #get the previous table from the FOV- 
+        fov = metadata['fov_object']
+        df_old = fov.tracks #get the previous table from the FOV- 
 
         labels = self.segmentator.segment(img[self.segmentation_channel,:,:])
-
         df_new,labels_rings = extract_features(labels,img)
-        print(type(self.tracker))
         df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
 
         if metadata['stim'] == True:
-            stim_mask,labels_stim = self.stimulator.get_stim_mask(labels,fov)
+            stim_mask,labels_stim = self.stimulator.get_stim_mask(labels,metadata)
             fov.stim_mask_queue.put(stim_mask)
             store_img(stim_mask,metadata,'stim_mask')
             #mark in the df which cells have been stimulated
@@ -77,13 +76,37 @@ class ImageProcessingPipeline:
             store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim_mask')
             store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim')
 
-        #store the intermediate DF containing the tracks
-        df_tracked.to_pickle(os.path.join(fov.path, "tracks", metadata['fname'] + '.pkl'))
+        #store the tracks in the FOV queue
         fov.tracks_queue.put(df_tracked)
 
+        #store the intermediate DF containing the tracks
+
+        #add all the metadata to the DF
+        
+        for key, value in metadata.items():
+            if type(value) == list:
+            # df['new_column'] = df.apply(lambda row: value, axis=1)
+                df_tracked[key] = df_tracked.apply(lambda row: value, axis=1)
+            else: 
+                df_tracked.loc[:,key] = value
+
+        #delete unnecessary collumns from the df
+        df_tracked = df_tracked.drop('fov_object', axis=1)
+        df_tracked = df_tracked.drop('img_type', axis=1)
+        df_tracked = df_tracked.drop('channel', axis=1)
+
+
+        df_tracked.to_pickle(os.path.join(fov.path, "tracks", metadata['fname'] + '.pkl'))
+
+        particles = labels_to_particles(labels,df_tracked)
         store_img(labels,metadata,'labels')
         store_img(labels_rings,metadata,'labels_rings')
+        store_img(particles,metadata,'particles')
 
+        #cleanup: delete the previous pickled tracks file
+        if metadata['timestep'] > 0:
+            fname_previous = f'{str(fov.index).zfill(3)}_{str(metadata["timestep"]-1).zfill(5)}.pkl'
+            os.remove(os.path.join(fov.path, "tracks", fname_previous))
 
 
         #TODO return something useful
