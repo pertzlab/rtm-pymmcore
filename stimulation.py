@@ -35,12 +35,18 @@ class StimCircle(Stim):
     by drawing a circle at the centroid of each labeled region in the label image.
     The radius of the circle and the x/y offset of the centroid can be parametrized.
     """
-    def get_stim_mask(self, label_image: np.ndarray, radius: int, x_offset: int, y_offset: int) -> np.ndarray:
+    def get_stim_mask(self, label_image: np.ndarray, metadata) -> np.ndarray:
+
+        fov = metadata['fov_object']
+        offset_x = metadata['offset_x']
+        offset_y = metadata['offset_y']
+        radius = metadata['radius']
+
         stim_mask = np.zeros_like(label_image, dtype=np.uint8)
         props = regionprops(label_image)
         labels_stim = []
         for prop in props:
-            centroid = (prop.centroid[0] + y_offset, prop.centroid[1] + x_offset)
+            centroid = (prop.centroid[0] + offset_y, prop.centroid[1] + offset_x)
             rr, cc = disk(centroid, radius=radius)
             stim_mask[rr, cc] = 1
             labels_stim.append(prop.label)
