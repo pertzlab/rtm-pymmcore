@@ -28,12 +28,11 @@ class TrackerTrackpy(Tracker):
             raise ValueError(f"Missing required columns: {missing_columns}")
         
 
-        fov = metadata['fov']
+        fov = metadata['fov_object']
         df_new['frame']=metadata['timestep']
         df_new['stim']=False
         df_new['time']=metadata['time'] #relative time scince beginning of experiment
 
-        print(f'FOV {fov.index} type of old tracks: {type(fov.tracks)}.')
         coordinates = np.array(df_new[['x','y']]) #Convert the df to an array of shape (shape: N, ndim) for trackpy
 
         
@@ -49,9 +48,8 @@ class TrackerTrackpy(Tracker):
 
         else:
             #this is not the first frame
-            if len(df_new.index) != 0:
-                fov.linker.next_level(coordinates, metadata['timestep']) #extract positions and convert to horizontal list
-                df_new['particle'] = fov.linker.particle_ids
+            fov.linker.next_level(coordinates, metadata['timestep']) #extract positions and convert to horizontal list
+            df_new['particle'] = fov.linker.particle_ids
             df_tracked = pd.concat([df_old,df_new])
 
         #this is against a in trackpy, where the same ID gets assigned twice in one frame
@@ -65,7 +63,6 @@ class TrackerNoTracking(Tracker):
     """Dummy tracker that just joins the old and new dataframe, and doesn't track anything."""
 
     def track_cells(self,df_old,df_new,metadata):
-        fov = metadata['fov']
         df_new['frame']=metadata['timestep']
         df_new['stim']=False
         df_new['time']=metadata['time'] #relative time scince beginning of experiment
