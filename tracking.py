@@ -5,7 +5,7 @@ from trackpy.linking import Linker
 
 class Tracker:
     """Base class for tracking algorithms. Subclasses must implement track_cells() method."""
-    def track_cells(self):
+    def track_cells(self) -> pd.DataFrame:
         raise NotImplementedError("Subclass must implement track_cells() method.")
 
 
@@ -17,7 +17,7 @@ class TrackerTrackpy(Tracker):
         self.adaptive_stop = adaptive_stop
         self.adaptive_step = adaptive_step
     
-    def track_cells(self,df_old, df_new, metadata):
+    def track_cells(self,df_old : pd.DataFrame, df_new: pd.DataFrame, metadata) -> pd.DataFrame:
         """Track cells in a dataframe using trackpy library.
         Args:
             dataframe: dataframe with columns 'x', 'y', 'label'"""
@@ -57,7 +57,7 @@ class TrackerTrackpy(Tracker):
         #this is against a in trackpy, where the same ID gets assigned twice in one frame
         df_tracked = df_tracked.drop_duplicates(subset=['particle','frame']) 
         df_tracked = df_tracked.reset_index(drop=True)
-        raise NotImplementedError("Subclass must implement track_cells() method.")
+        return df_tracked
     
 
 
