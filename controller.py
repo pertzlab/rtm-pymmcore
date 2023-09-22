@@ -87,13 +87,14 @@ class Controller:
             print(f"Current timestep: {timestep}")
         # extract the lines with the current timestep from the DF
             current_timestep_df = df_acquire[df_acquire['timestep'] == timestep]
-            for index, row in df_acquire.iterrows():
+            for index, row in current_timestep_df.iterrows():
                 fov : FOV = row['fov_object']
                 timestep = row['timestep']
                 stim = row['stim']
                 channels = row['channels']
+                channels_exposure = row['channels_exposure']
                 channel_stim = row['channel_stim']
-
+                channel_stim_exposure = row['channel_stim_exposure']
                 # copy the metadata from the DF TODO: automate this
                 metadata_dict : MetadataDict= { 'fov': fov, 
                                                 'img_type': ImgType.IMG_RAW,
@@ -120,7 +121,8 @@ class Controller:
                             x_pos = fov.pos[0], # only one pos for all channels
                             y_pos = fov.pos[1],
                             sequence = fov.mda_sequence,
-                            min_start_time = row['time_experiment'], 
+                            min_start_time = row['time_experiment'],
+                            exposure=channels_exposure[i]
                         )
                     self._queue.put(acquisition_event)
 
@@ -141,6 +143,7 @@ class Controller:
                         metadata = metadata_dict, # (custom) metadata that is attatched to the event/image
                         x_pos = fov.pos[0], # only one pos for all channels
                         y_pos = fov.pos[1],
+                        exposure = channel_stim_exposure
                     )
                     self._queue.put(stimulation_event)   
 

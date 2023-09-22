@@ -52,15 +52,13 @@ class ImageProcessingPipeline:
         8. Store the intermediate tracks dataframe.
         9. Store the segmented images and labels.
         """
-
-        metadata : MetadataDict = event.metadata
         
         # Rest of the code...
 
         metadata : MetadataDict = event.metadata
         
         fov = metadata['fov']
-        df_old = fov.tracks #get the previous table from the FOV- 
+        df_old = fov.tracks_queue.get() #get the previous table from the FOV- 
 
         labels = self.segmentator.segment(img[self.segmentation_channel,:,:])
 
