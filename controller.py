@@ -1,9 +1,9 @@
 from pymmcore_plus import CMMCorePlus
-from MDAEngine_DMD import MDAEngine_DMD
-from pymmcore_plus.mda import MDAEngine
+#from MDAEngine_DMD import MDAEngine_DMD
+#from pymmcore_plus.mda import MDAEngine
 from utils import ImgType, MetadataDict
 from add_frame import store_img, ImageProcessingPipeline
-import time
+#import time
 
 from fov import FOV
 import useq
@@ -104,7 +104,7 @@ class Controller:
                 metadata_dict['last_channel']= channels[-1]
                                             
                 if self._dmd != None:
-                    metadata_dict['stim_mask'] = self._dmd.sample_mask_on,
+                    metadata_dict['stim_mask'] = self._dmd.sample_mask_on
                     
                 ### Capture the raw image without DMD illumination
                 for i,channel in enumerate(channels):

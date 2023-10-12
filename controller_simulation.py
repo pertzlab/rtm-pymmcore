@@ -102,8 +102,9 @@ class Controller:
                 metadata_dict['last_channel']= channels[-1]
                                             
                 if self._dmd != None:
-                    metadata_dict['stim_mask'] = self._dmd.sample_mask_on,
-                    
+                    metadata_dict['stim_mask'] = self._dmd.sample_mask_on
+
+
                 ### Capture the raw image without DMD illumination
                 for i,channel in enumerate(channels):
                     last_channel:bool = i == len(channels)-1

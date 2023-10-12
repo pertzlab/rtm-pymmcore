@@ -1,6 +1,7 @@
 #from cv2 import cv2 #fixes a pylint error
 import cv2
 import numpy as np
+import numpy.typing as npt
 import matplotlib.pyplot as plt
 import time
 import scipy
@@ -31,8 +32,8 @@ class DMD():
             self.width = self.mmc.getSLMWidth(self.name)
             self.bppx = self.mmc.getSLMBytesPerPixel(self.name)
             self.exposure_time = self.mmc.getSLMExposure(self.name)
-            self.sample_mask_on = np.ones((self.height,self.width))
-            self.sample_mask_off = np.zeros((self.height,self.width))
+            self.sample_mask_on = np.full((self.height,self.width),255).astype(np.uint8)
+            self.sample_mask_off = np.zeros((self.height,self.width)).astype(np.uint8)
         
     def transform_img(self, img,affine):#TODO delete this if not needed in calibration
         '''Applies transformation matrix on image in camera space. Returns mask in dmd space.
@@ -70,30 +71,22 @@ class DMD():
 
 
 
-    def upload_mask(self, mask):
-        '''Converts np.array in shape of dmd into string, and uploades it to the dmd.
-        Args:
-            mask: binary array in shape of dmd
-        '''
-        flatarray = mask.ravel().tolist()
-        self.mmc.setSLMImage(self.name, np.array(flatarray).astype(np.uint8))
-
     def checker_board(self, pixels = 20):
         '''display a checkerboard pattern for a long time
         '''
         #build checkerboard
         checker_board = np.kron([[1, 0] * 20, [0, 1] * 20] * 15, np.ones((20, 20))) #https://stackoverflow.com/a/37440123
-        self.mmc.setSLMExposure(self.name, 200000)
-        self.mmc.setProperty(self.name, 'OverlapMode', 'On')
+        #self.mmc.setSLMExposure(self.name, 200000)
+        #self.mmc.setProperty(self.name, 'OverlapMode', 'On')
         self.upload_mask(checker_board)
         self.mmc.displaySLMImage(self.name)   
     
     def display_mask(self,mask):
         '''Display the mask loaded on the dmd. Displays it for the set exposure.
         '''
-        self.upload_mask(mask)
-        self.mmc.setSLMExposure(self.name, 200000)
-        self.mmc.setProperty(self.name, 'OverlapMode', 'On')
+ 
+        self.mmc.setSLMImage(self.name, mask)
+
         self.mmc.displaySLMImage(self.name)
 
     def set_exposure(self, exposure_time):
