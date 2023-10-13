@@ -166,13 +166,12 @@ class DMD():
         calibration_points_camera = []
 
 
-        mask = np.zeros((self.height, self.width))
         #background = self.capture_and_stim_mask(mask, dmd_exposure_time, camera_exposure_time) #for background subtraction
         #background = cv2.blur(background,(blur,blur), cv2.BORDER_REFLECT) 
 
         for xy in calibration_points_DMD:
             #create mask
-            mask = np.zeros((self.height, self.width))
+            mask = np.zeros((self.height, self.width)).astype(np.uint8)
             #mask[xy[1],xy[0]] = 1
 
             #mask = coordinates_to_lightmap(xy, mask)
@@ -263,6 +262,8 @@ class DMD():
             for xy in calibration_points_camera:
                 axs[3].scatter(xy[0],xy[1],marker = marker_style, facecolors='none', edgecolors='green')
            #plt.show()
+
+        self.affine = warp_mat
         return warp_mat
 
 
