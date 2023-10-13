@@ -10,7 +10,7 @@ class FOV:
         self.properties = properties #dict to store data required for experiment
         self.light_mask = None
         self.path = path # folder with experiment
-        self.stim_params = {} #dict with the parameters the stimlator will unpack in the segment method
+        self.stim_params = {} #dict with the parameters the stimulator will unpack in the segment method
         self.stim_mask_queue = queue.Queue()
         self.tracks_queue = queue.Queue()
         self.start_time = None
