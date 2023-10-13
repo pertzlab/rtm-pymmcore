@@ -8,7 +8,7 @@ from segmentation import Segmentator,extract_features
 from tracking import Tracker
 from utils import MetadataDict,ImgType
 import pandas as pd
-import time
+#import time
 import os
 from utils import labels_to_particles
 
@@ -17,9 +17,6 @@ def store_img(img:np.array,metadata:MetadataDict,folder:str,check_contrast:bool=
     fov = metadata['fov_object']
     img_type = metadata['img_type']
     fname = metadata['fname']
-    if img == []:
-        print(folder)
-
     skimage.io.imsave(os.path.join(fov.path, folder, fname + '.tiff'), img, check_contrast=check_contrast)
 
 
@@ -83,17 +80,18 @@ class ImageProcessingPipeline:
 
         #add all the metadata to the DF
         
-        for key, value in metadata.items():
-            if type(value) == list:
-            # df['new_column'] = df.apply(lambda row: value, axis=1)
-                df_tracked[key] = df_tracked.apply(lambda row: value, axis=1)
-            else: 
-                df_tracked.loc[:,key] = value
+        if not df_tracked.empty:
+            for key, value in metadata.items():
+                if type(value) == list:
+                # df['new_column'] = df.apply(lambda row: value, axis=1)
+                    df_tracked[key] = df_tracked.apply(lambda row: value, axis=1)
+                else: 
+                    df_tracked.loc[:,key] = value
 
-        #delete unnecessary collumns from the df
-        df_tracked = df_tracked.drop('fov_object', axis=1)
-        df_tracked = df_tracked.drop('img_type', axis=1)
-        df_tracked = df_tracked.drop('channel', axis=1)
+            #delete unnecessary collumns from the df
+            df_tracked = df_tracked.drop('fov_object', axis=1)
+            df_tracked = df_tracked.drop('img_type', axis=1)
+            df_tracked = df_tracked.drop('channel', axis=1)
 
 
         df_tracked.to_pickle(os.path.join(fov.path, "tracks", metadata['fname'] + '.pkl'))
