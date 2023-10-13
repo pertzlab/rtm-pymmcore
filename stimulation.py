@@ -35,7 +35,7 @@ class StimCircle(Stim):
     by drawing a circle at the centroid of each labeled region in the label image.
     The radius of the circle and the x/y offset of the centroid can be parametrized.
     """
-    def get_stim_mask(self, label_image: np.ndarray, metadata) -> np.ndarray:
+    def get_stim_mask(self, label_image: np.ndarray, metadata:dict) -> np.ndarray:
 
         fov = metadata['fov_object']
         offset_x = metadata['offset_x']
@@ -57,9 +57,9 @@ class StimExtraParameters(Stim):
     An example class that uses the metadata from a FOV to do more advanced stimulation
     patterns.
     """
-    def get_stim_mask(self, label_image: np.ndarray, fov: FOV) -> np.ndarray:
+    def get_stim_mask(self, label_image: np.ndarray,  metadata:dict) -> np.ndarray:
 
-        if 'stim_property' in fov.properties:
+        if 'stim_property' in metadata['fov_object'].properties:
             # Do something if 'stim_property' is in the dict
             return np.ones_like(label_image), []
 
