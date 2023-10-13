@@ -118,7 +118,7 @@ class Controller:
                             x_pos = fov.pos[0], # only one pos for all channels
                             y_pos = fov.pos[1],
                             sequence = fov.mda_sequence,
-                            min_start_time = row['time_experiment'],
+                            min_start_time = row['time'],
                             exposure=channels_exposure[i]
                         )
                     
