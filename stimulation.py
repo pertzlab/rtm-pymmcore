@@ -1,4 +1,5 @@
 import numpy as np
+import numpy.typing as npt
 from skimage.draw import disk
 from skimage.measure import regionprops
 from fov import FOV
@@ -11,7 +12,7 @@ class Stim:
     Base class for all stimulators. Specific implementations should inherit 
     from this class and override the get_stim_mask method.
     """
-    def get_stim_mask(self, label_image: np.ndarray) -> np.ndarray:
+    def get_stim_mask(self, label_image: np.ndarray) -> npt.NDArray[np.uint8]:
         """
         Parameters:
         label_image (np.ndarray): The label image to stimulate.
@@ -24,7 +25,7 @@ class Stim:
 
 class StimNothing(Stim):
     """Use when you don't want to stimulate. Returns empty stimulation mask."""
-    def get_stim_mask(self, label_image: np.ndarray) -> np.ndarray:
+    def get_stim_mask(self, label_image: np.ndarray) -> npt.NDArray[np.uint8]:
         return np.zeros_like(label_image), [1,2,3,4] #some dummy values
 
 class StimCircle(Stim):
@@ -35,7 +36,7 @@ class StimCircle(Stim):
     by drawing a circle at the centroid of each labeled region in the label image.
     The radius of the circle and the x/y offset of the centroid can be parametrized.
     """
-    def get_stim_mask(self, label_image: np.ndarray, metadata:dict) -> np.ndarray:
+    def get_stim_mask(self, label_image: np.ndarray, metadata:dict) -> npt.NDArray[np.uint8]:
 
         fov = metadata['fov_object']
         offset_x = metadata['offset_x']
@@ -57,11 +58,11 @@ class StimExtraParameters(Stim):
     An example class that uses the metadata from a FOV to do more advanced stimulation
     patterns.
     """
-    def get_stim_mask(self, label_image: np.ndarray,  metadata:dict) -> np.ndarray:
+    def get_stim_mask(self, label_image: np.ndarray,  metadata:dict) -> npt.NDArray[np.uint8]:
 
         if 'stim_property' in metadata['fov_object'].properties:
             # Do something if 'stim_property' is in the dict
-            return np.ones_like(label_image), []
+            return np.ones_like(label_image).astype(np.uint8), []
 
         else:
             # Property is not in dict!
