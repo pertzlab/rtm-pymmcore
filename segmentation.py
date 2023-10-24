@@ -123,4 +123,8 @@ def extract_features(labels,raw):
     # ValueError: Length of values (291) does not match length of index (290)
     # for the moment use centroids from label map region props.
     table = table.rename({'centroid-0': 'x', 'centroid-1': 'y'}, axis='columns')
+
+    #add empty particle column (this will be filled later if there are particles)
+    table['particle'] = pd.Series(dtype='int')
+
     return table, labels_ring
