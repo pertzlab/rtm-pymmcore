@@ -3,9 +3,10 @@ import queue
 
 
 class FOV:
-    def __init__(self, pos, index, path, metadata, properties):
+    def __init__(self, pos, index, name, path, metadata, properties):
         self.pos = pos #stage position
         self.index = index #unique index
+        self.name = name #name comming from the napari interface (Pos col, but can be edited)
         self.metadata = metadata #dict with metadata
         self.properties = properties #dict to store data required for experiment
         self.light_mask = None
