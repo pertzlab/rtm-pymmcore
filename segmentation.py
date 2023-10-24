@@ -113,7 +113,7 @@ def extract_features(labels,raw):
     table = table_nuc.merge(table_ring,  on=["label"])
 
     #CALCULATE the ERK ratio
-    table['ratio_ERK'] = table['mean_intensity_C1_ring']/table['mean_intensity_C1_nuc']
+    #table['ratio_ERK'] = table['mean_intensity_C1_ring']/table['mean_intensity_C1_nuc']
 
     # TODO add the points from stardist
     #table['x'] = details["points"][:,0]
