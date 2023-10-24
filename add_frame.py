@@ -10,11 +10,12 @@ from utils import MetadataDict,ImgType
 import pandas as pd
 #import time
 import os
+from fov import FOV
 from utils import labels_to_particles
 
 def store_img(img:np.array,metadata:MetadataDict,folder:str,check_contrast:bool=False):
     """Take the image and store it accordingly. Check the metadata for FOV index and timestamp."""
-    fov = metadata['fov_object']
+    fov : FOV = metadata['fov_object']
     img_type = metadata['img_type']
     fname = metadata['fname']
     skimage.io.imsave(os.path.join(fov.path, folder, fname + '.tiff'), img, check_contrast=check_contrast)
@@ -55,13 +56,13 @@ class ImageProcessingPipeline:
 
         metadata : MetadataDict = event.metadata
         
-        fov = metadata['fov_object']
+        fov : FOV = metadata['fov_object']
         df_old = fov.tracks #get the previous table from the FOV- 
 
         labels = self.segmentator.segment(img[self.segmentation_channel,:,:])
         df_new,labels_rings = extract_features(labels,img)
         df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
-
+        print(df_tracked)
         if metadata['stim'] == True:
             stim_mask,labels_stim = self.stimulator.get_stim_mask(labels,metadata)
             fov.stim_mask_queue.put(stim_mask)
@@ -72,7 +73,8 @@ class ImageProcessingPipeline:
         else:
             store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim_mask')
             store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim')
-
+        
+        print('putting tracks into queue, fov: '+ fov.name)
         #store the tracks in the FOV queue
         fov.tracks_queue.put(df_tracked)
 
@@ -94,7 +96,7 @@ class ImageProcessingPipeline:
             df_tracked = df_tracked.drop('channel', axis=1)
 
 
-        df_tracked.to_pickle(os.path.join(fov.path, "tracks", metadata['fname'] + '.pkl'))
+        df_tracked.to_pickle(fov.path + "tracks/" + metadata['fname'] + '.zip')
 
         particles = labels_to_particles(labels,df_tracked)
         store_img(labels,metadata,'labels')
@@ -104,7 +106,7 @@ class ImageProcessingPipeline:
         #cleanup: delete the previous pickled tracks file
         if metadata['timestep'] > 0:
             fname_previous = f'{str(fov.index).zfill(3)}_{str(metadata["timestep"]-1).zfill(5)}.pkl'
-            os.remove(os.path.join(fov.path, "tracks", fname_previous))
+            os.remove(fov.path + "tracks/" + metadata['fname'] + '.zip')
 
 
         #TODO return something useful
