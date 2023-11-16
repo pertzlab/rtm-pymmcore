@@ -8,3 +8,4 @@ pandas
 stardist
 tensorflow
 trackpy
+tifffile

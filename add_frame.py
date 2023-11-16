@@ -12,14 +12,14 @@ import pandas as pd
 import os
 from fov import FOV
 from utils import labels_to_particles
+import tifffile
 
 def store_img(img:np.array,metadata:MetadataDict,folder:str,check_contrast:bool=False):
     """Take the image and store it accordingly. Check the metadata for FOV index and timestamp."""
     fov : FOV = metadata['fov_object']
     img_type = metadata['img_type']
     fname = metadata['fname']
-    skimage.io.imsave(os.path.join(fov.path, folder, fname + '.tiff'), img, check_contrast=check_contrast)
-
+    tifffile.imwrite(os.path.join(fov.path, folder, fname + '.tiff'), img, compression='zlib', compressionargs={'level': 5})
 
 # Create a new pipeline class that contains a segmentator and a stimulator
 class ImageProcessingPipeline:
