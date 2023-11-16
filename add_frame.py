@@ -12,6 +12,7 @@ import pandas as pd
 import os
 from fov import FOV
 from utils import labels_to_particles
+from utils import write_compressed_pickle
 import tifffile
 
 def store_img(img:np.array,metadata:MetadataDict,folder:str,check_contrast:bool=False):
@@ -96,7 +97,9 @@ class ImageProcessingPipeline:
             df_tracked = df_tracked.drop('channel', axis=1)
 
 
-        df_tracked.to_pickle(fov.path + "tracks/" + metadata['fname'] + '.zip')
+        # df_tracked.to_pickle(fov.path + "tracks/" + metadata['fname'] + '.zip') 
+        ### if wanted, here compression could be used as well
+        write_compressed_pickle(df_tracked, fov.path + "tracks/" + metadata['fname'])
 
         particles = labels_to_particles(labels,df_tracked)
         store_img(labels,metadata,'labels')
