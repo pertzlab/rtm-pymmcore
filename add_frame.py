@@ -12,14 +12,15 @@ import pandas as pd
 import os
 from fov import FOV
 from utils import labels_to_particles
+from utils import write_compressed_pickle
+import tifffile
 
-def store_img(img:np.array,metadata:MetadataDict,folder:str,check_contrast:bool=False):
+def store_img(img:np.array, metadata:MetadataDict, folder:str):
     """Take the image and store it accordingly. Check the metadata for FOV index and timestamp."""
     fov : FOV = metadata['fov_object']
     img_type = metadata['img_type']
     fname = metadata['fname']
-    skimage.io.imsave(os.path.join(fov.path, folder, fname + '.tiff'), img, check_contrast=check_contrast)
-
+    tifffile.imwrite(os.path.join(fov.path, folder, fname + '.tiff'), img, compression='zlib', compressionargs={'level': 5})
 
 # Create a new pipeline class that contains a segmentator and a stimulator
 class ImageProcessingPipeline:
@@ -95,8 +96,7 @@ class ImageProcessingPipeline:
             df_tracked = df_tracked.drop('img_type', axis=1)
             df_tracked = df_tracked.drop('channel', axis=1)
 
-
-        df_tracked.to_pickle(fov.path + "tracks/" + metadata['fname'] + '.zip')
+        write_compressed_pickle(df_tracked, fov.path + "tracks/" + metadata['fname'])
 
         particles = labels_to_particles(labels,df_tracked)
         store_img(labels,metadata,'labels')
