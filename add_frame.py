@@ -15,7 +15,7 @@ from utils import labels_to_particles
 from utils import write_compressed_pickle
 import tifffile
 
-def store_img(img:np.array,metadata:MetadataDict,folder:str,check_contrast:bool=False):
+def store_img(img:np.array, metadata:MetadataDict, folder:str):
     """Take the image and store it accordingly. Check the metadata for FOV index and timestamp."""
     fov : FOV = metadata['fov_object']
     img_type = metadata['img_type']
@@ -96,9 +96,6 @@ class ImageProcessingPipeline:
             df_tracked = df_tracked.drop('img_type', axis=1)
             df_tracked = df_tracked.drop('channel', axis=1)
 
-
-        # df_tracked.to_pickle(fov.path + "tracks/" + metadata['fname'] + '.zip') 
-        ### if wanted, here compression could be used as well
         write_compressed_pickle(df_tracked, fov.path + "tracks/" + metadata['fname'])
 
         particles = labels_to_particles(labels,df_tracked)
