@@ -75,11 +75,10 @@ class DMD():
         '''display a checkerboard pattern for a long time
         '''
         #build checkerboard
-        checker_board = np.kron([[1, 0] * 20, [0, 1] * 20] * 15, np.ones((20, 20))) #https://stackoverflow.com/a/37440123
-        #self.mmc.setSLMExposure(self.name, 200000)
-        #self.mmc.setProperty(self.name, 'OverlapMode', 'On')
-        self.upload_mask(checker_board)
-        self.mmc.displaySLMImage(self.name)   
+        checker_board = (np.indices((self.height, self.width)) // pixels).sum(axis=0) % 2
+        checker_board = checker_board.astype(np.uint8) * 255       
+        self.display_mask(checker_board)
+
     
     def display_mask(self,mask):
         '''Display the mask loaded on the dmd. Displays it for the set exposure.
@@ -151,119 +150,121 @@ class DMD():
         self.display_mask(mask)#display on dmd
 
 
-    def calibrate(self, verbous=False, blur = 10, circle_size = 10, marker_style = 'x', calibration_points_DMD = [(180,180),(700,130),(180,550)]):
+    # def calibrate(self, verbous=False, blur = 10, circle_size = 10, marker_style = 'x', calibration_points_DMD = [(400,500),(700,130),(600,800)]):
         
-        '''Calibrate the dmd and camera coordinate systems. 
-        Projects 3 points in DMD space and detects them in camera space, 
-        then finds the affine transofmation matrix. 
-        Args:
-            verbous (bool, optional): Whether to display additional images during calibration. Defaults to False.
-            blur (int, optional): Blur size for captured images. Defaults to 10.
-            circle_size (int, optional): Size of the calibration circle projected. Defaults to 10.
-            marker_style (str, optional): Marker style for calibration points. Defaults to 'x'.
-            calibration_points_DMD (list, optional): List of X/Y DMD calibration points. Defaults to [(180,180),(700,130),(180,550)], which works well on our (800x600 DMD).
-        '''
-        calibration_points_camera = []
+    #     '''Calibrate the dmd and camera coordinate systems. 
+    #     Projects 3 points in DMD space and detects them in camera space, 
+    #     then finds the affine transofmation matrix. 
+    #     Args:
+    #         verbous (bool, optional): Whether to display additional images during calibration. Defaults to False.
+    #         blur (int, optional): Blur size for captured images. Defaults to 10.
+    #         circle_size (int, optional): Size of the calibration circle projected. Defaults to 10.
+    #         marker_style (str, optional): Marker style for calibration points. Defaults to 'x'.
+    #         calibration_points_DMD (list, optional): List of X/Y DMD calibration points. Defaults to [(180,180),(700,130),(180,550)], which works well on our (800x600 DMD).
+    #     '''
+    #     calibration_points_camera = []
+    #     stim_imgs = []
+    #     masks = []
 
+    #     #background = self.capture_and_stim_mask(mask, dmd_exposure_time, camera_exposure_time) #for background subtraction
+    #     #background = cv2.blur(background,(blur,blur), cv2.BORDER_REFLECT) 
 
-        #background = self.capture_and_stim_mask(mask, dmd_exposure_time, camera_exposure_time) #for background subtraction
-        #background = cv2.blur(background,(blur,blur), cv2.BORDER_REFLECT) 
+    #     for xy in calibration_points_DMD:
+    #         #create mask
+    #         mask = np.zeros((self.height, self.width)).astype(np.uint8)
+    #         #mask[xy[1],xy[0]] = 1
 
-        for xy in calibration_points_DMD:
-            #create mask
-            mask = np.zeros((self.height, self.width)).astype(np.uint8)
-            #mask[xy[1],xy[0]] = 1
+    #         #mask = coordinates_to_lightmap(xy, mask)
+    #         mask = cv2.circle(mask, (xy[0],xy[1]), circle_size, 1, -1)
+    #         mask = mask.astype(np.uint8)*255
+    #         masks.append(mask)
+    #         self.display_mask(mask)
+    #         #self.core.snap_image()#take picture
+    #         #img = acq(self.mmc)
+    #         self.mmc.snapImage()
+    #         img = self.mmc.getImage()
 
-            #mask = coordinates_to_lightmap(xy, mask)
-            mask = cv2.circle(mask, (xy[0],xy[1]), circle_size, 1, -1)
+    #         img = cv2.blur(img,(blur,blur))  #TODO check border padding
 
-            #display mask
-            self.display_mask(mask)#, dmd_exposure_time, camera_exposure_time)
-            #self.core.snap_image()#take picture
-            #img = acq(self.mmc)
-            self.mmc.snapImage()
-            img = self.mmc.getImage()
-
-            img = cv2.blur(img,(blur,blur))  #TODO check border padding
-            stim_imgs = []
-
-            #extract pixel location in camera space, by finding brightest image pixel
-            max_pixel = np.unravel_index(np.argmax(img, axis=None), img.shape)
+    #         #extract pixel location in camera space, by finding brightest image pixel
+    #         max_pixel = np.unravel_index(np.argmax(img, axis=None), img.shape)
             
-            # yx -> xy from numpy
-            max_pixel =[max_pixel[1],max_pixel[0]]
-            calibration_points_camera.append(max_pixel)#store point
+    #         # yx -> xy from numpy
+    #         max_pixel =[max_pixel[1],max_pixel[0]]
+    #         calibration_points_camera.append(max_pixel)#store point
 
-            if verbous:
-                stim_imgs.append(img)
+    #         if verbous:
+    #             stim_imgs.append(img)
+
+    #     camera_width = img.shape[0]
+    #     camera_height = img.shape[1]
+
+    #     calibration_points_camera = np.array(calibration_points_camera)
+    #     calibration_points_DMD = np.array(calibration_points_DMD)
+
+    #     calibration_points_camera = np.float32(calibration_points_camera[:, np.newaxis, :])
+    #     calibration_points_DMD = np.float32(calibration_points_DMD[:, np.newaxis, :])
+
+
+    #     #from the two list of points calculate affine translation matrix
+    #     warp_mat = cv2.getAffineTransform(calibration_points_camera,calibration_points_DMD) #source, destination
+    #     #warp_mat = cv2.invertAffineTransform(warp_mat)
         
-        camera_width = img.shape[0]
-        camera_height = img.shape[1]
+    #     # if verbous, print five images:
+    #     #[background, point1, point2, point3, calibration_test]
+    #     if verbous:
+    #         fig, axs = plt.subplots(figsize=(20, 5), ncols=4, dpi = 250) 
+    #     #axs[0].yaxis.tick_left()
+    #        # axs[0].xaxis.tick_top()  
+    #        # axs[0].yaxis.set_ticks(np.arange(0, camera_height, 256))
+    #        # axs[0].xaxis.set_ticks(np.arange(0, camera_width, 256))
+    #        # axs[0].imshow(background, cmap='gray') #show the background image
 
-        calibration_points_camera = np.array(calibration_points_camera)
-        calibration_points_DMD = np.array(calibration_points_DMD)
-
-        calibration_points_camera = np.float32(calibration_points_camera[:, np.newaxis, :])
-        calibration_points_DMD = np.float32(calibration_points_DMD[:, np.newaxis, :])
-
-        #from the two list of points calculate affine translation matrix
-        warp_mat = cv2.getAffineTransform(calibration_points_camera,calibration_points_DMD) #source, destination
-        #warp_mat = cv2.invertAffineTransform(warp_mat)
-        
-        # if verbous, print five images:
-        #[background, point1, point2, point3, calibration_test]
-        if verbous:
-            fig, axs = plt.subplots(figsize=(20, 5), ncols=4, dpi = 250) 
-        #axs[0].yaxis.tick_left()
-           # axs[0].xaxis.tick_top()  
-           # axs[0].yaxis.set_ticks(np.arange(0, camera_height, 256))
-           # axs[0].xaxis.set_ticks(np.arange(0, camera_width, 256))
-           # axs[0].imshow(background, cmap='gray') #show the background image
-
-            #show the images with single pixel on
-            for (i,point_detected) in enumerate(calibration_points_camera):
-                #axs[i+1].set_ylim(axs[i+1].get_ylim()[::-1])
-                axs[i].xaxis.tick_top()    # and move the X-Axis     
-                axs[i].xaxis.set_ticks(np.arange(0, camera_width, 256)) # set y-ticks
-                axs[i].yaxis.set_ticks(np.arange(0, camera_height, 256)) # set y-ticks
-                axs[i].yaxis.tick_left() 
-                axs[i].imshow(stim_imgs[i],cmap='gray')
-                axs[i].scatter(point_detected[0][0],point_detected[0][1],marker = marker_style, facecolors='none', edgecolors='red')
+    #         #show the images with single pixel on
+    #         for (i,point_detected) in enumerate(calibration_points_camera):
+    #             #axs[i+1].set_ylim(axs[i+1].get_ylim()[::-1])
+    #             axs[i].xaxis.tick_top()    # and move the X-Axis     
+    #             axs[i].xaxis.set_ticks(np.arange(0, camera_width, 256)) # set y-ticks
+    #             axs[i].yaxis.set_ticks(np.arange(0, camera_height, 256)) # set y-ticks
+    #             axs[i].yaxis.tick_left() 
+    #             axs[i].imshow(stim_imgs[i],cmap='gray')
+    #             axs[i].scatter(point_detected[0][0],point_detected[0][1],marker = marker_style, facecolors='none', edgecolors='red')
             
-            #test the calibration on three new points
-            max_res = 2048
-            calibration_points_camera = [[200,500],[200,1400],[1400,300],[1500,500],[1800,1000],[1750,1650]]
-            #scale to binning
-            for i, xy in enumerate(calibration_points_camera): 
-                calibration_points_camera[i]=[int(xy[0]/max_res*camera_width),int(xy[1]/max_res*camera_height)]
+    #         #test the calibration on three new points
+    #         max_res = 2048
+    #         calibration_points_camera = [[200,500],[200,1400],[1400,300],[1500,500],[1800,1000],[1750,1650]]
+    #         #scale to binning
+    #         for i, xy in enumerate(calibration_points_camera): 
+    #             calibration_points_camera[i]=[int(xy[0]/max_res*camera_width),int(xy[1]/max_res*camera_height)]
 
-            #create image in camera space[]
-            mask = np.zeros((camera_height, camera_width)) #TODO; grab from core
-            for xy in calibration_points_camera: 
-                mask = cv2.circle(mask, (xy[0],xy[1]), circle_size, 1, -1)
+    #         #create image in camera space[]
+    #         mask = np.zeros((camera_height, camera_width)) #TODO; grab from core
+    #         for xy in calibration_points_camera: 
+    #             mask = cv2.circle(mask, (xy[0],xy[1]), circle_size, 1, -1)
+    #         import skimage
+    #         #transform to dmd space
+    #         mask_warped = self.transform_img(mask, warp_mat)
+    #         #display in dmd space and capture dmd in cameraspace
+    #         mask_warped = skimage.util.img_as_ubyte(mask_warped)
+    #         self.display_mask(mask_warped)#, dmd_exposure_time, camera_exposure_time)
             
-            #transform to dmd space
-            mask_warped = self.transform_img(mask, warp_mat)
-            #display in dmd space and capture dmd in cameraspace
-            self.display_mask(mask_warped)#, dmd_exposure_time, camera_exposure_time)
-            
-            self.mmc.snapImage()
-            img = self.mmc.getImage()
+    #         self.mmc.snapImage()
+    #         img = self.mmc.getImage()
 
             
-            #compare expected and result
-            plt.axis([0, camera_height, 0, camera_width])   
-            ax=plt.gca()                            # get the axis
-            axs[3].set_ylim(ax.get_ylim()[::-1])        # invert the axis
-            axs[3].xaxis.tick_top()                     # and move the X-Axis      
-            axs[3].yaxis.set_ticks(np.arange(0, camera_height, 256)) # set y-ticks
-            axs[3].yaxis.tick_left()   
-            axs[3].imshow(img, cmap='gray',origin='upper')
-            for xy in calibration_points_camera:
-                axs[3].scatter(xy[0],xy[1],marker = marker_style, facecolors='none', edgecolors='green')
-           #plt.show()
+    #         #compare expected and result
+    #         plt.axis([0, camera_height, 0, camera_width])   
+    #         ax=plt.gca()                            # get the axis
+    #         axs[3].set_ylim(ax.get_ylim()[::-1])        # invert the axis
+    #         axs[3].xaxis.tick_top()                     # and move the X-Axis      
+    #         axs[3].yaxis.set_ticks(np.arange(0, camera_height, 256)) # set y-ticks
+    #         axs[3].yaxis.tick_left()   
+    #         axs[3].imshow(img, cmap='gray',origin='upper')
+    #         for xy in calibration_points_camera:
+    #             axs[3].scatter(xy[0],xy[1],marker = marker_style, facecolors='none', edgecolors='green')
+    #        plt.show()
 
-        self.affine = warp_mat
-        return warp_mat
+    #     self.affine = warp_mat
+    #     return warp_mat
 
 

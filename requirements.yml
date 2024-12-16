@@ -1,0 +1,21 @@
+name: pymmcore
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python==3.11
+  - pandas
+  - ipykernel
+  - ipywidgets
+  - numpy
+  - matplotlib
+  - napari
+  - scikit-image
+  - pyqt
+  - tifffile
+  - pip
+  - pip: 
+    - pymmcore-plus
+    - pymmcore-widgets
+    - opencv-python
+    - napari-micromanager
