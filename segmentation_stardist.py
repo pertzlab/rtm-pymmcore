@@ -1,0 +1,58 @@
+import numpy as np
+from skimage.measure import label
+from segmentation import Segmentator
+import skimage
+from skimage.segmentation import expand_labels
+from skimage.measure import regionprops_table
+import pandas as pd
+
+import stardist 
+import csbdeep
+from stardist.models import StarDist2D
+import matplotlib.pyplot as plt
+
+"""
+Segmentation module for image processing.
+
+This module contains classes for segmenting images. The base class Segmentator
+defines the interface for all segmentators. Specific implementations should
+inherit from this class and override the segment method.
+"""
+
+class SegmentatorStardist(Segmentator):
+
+
+    def __init__(self, model: str='2D_versatile_fluo', norm_min: float=1, norm_max: float=99, min_size: int = 30):
+        """
+        Initialize the SegmentatorStardist object.
+
+        Parameters:
+        model_path (str): The path to the pre-trained model (or name of pretrained network). Defaults to '2D_versatile_fluo'
+        norm_min (float): The minimum value for normalization. Defaults to 1.
+        norm_max (float): The maximum value for normalization. Defaults to 99.
+        min_size (int): The minimal object size. Defaults to 30. If 0, no filtering is performed. 
+        
+        """
+        
+        self.model = StarDist2D.from_pretrained(model)
+        #self.model.load_weights(model_path)
+        self.norm_min = norm_min
+        self.norm_max = norm_max
+        self.min_size = min_size #minimal object size
+
+
+    def segment(self, img: np.ndarray) -> np.ndarray:
+        """
+        Run the stardist model on data and do post-processing (remove small cells)
+        """
+        print("Segmenting image")
+        img_normed =  csbdeep.utils.normalize(img,self.norm_min,self.norm_max)
+        labels, details = self.model.predict_instances(img_normed)
+        plt.imshow(labels)
+        plt.show()
+
+        if self.min_size>0:
+            #remove cells below threshold
+            labels = skimage.morphology.remove_small_objects(labels,min_size = self.min_size, connectivity =1)
+        return labels
+    

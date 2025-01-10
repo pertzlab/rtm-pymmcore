@@ -63,7 +63,7 @@ class ImageProcessingPipeline:
         labels = self.segmentator.segment(img[self.segmentation_channel,:,:])
         df_new,labels_rings = extract_features(labels,img)
         df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
-        print(df_tracked)
+
         if metadata['stim'] == True:
             stim_mask,labels_stim = self.stimulator.get_stim_mask(labels,metadata)
             fov.stim_mask_queue.put(stim_mask)
@@ -75,7 +75,6 @@ class ImageProcessingPipeline:
             store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim_mask')
             store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim')
         
-        print('putting tracks into queue, fov: '+ fov.name)
         #store the tracks in the FOV queue
         fov.tracks_queue.put(df_tracked)
 
@@ -96,7 +95,8 @@ class ImageProcessingPipeline:
             df_tracked = df_tracked.drop('img_type', axis=1)
             df_tracked = df_tracked.drop('channel', axis=1)
 
-        write_compressed_pickle(df_tracked, fov.path + "tracks/" + metadata['fname'])
+        df_tracked.to_parquet(fov.path + "tracks/" + metadata['fname'] + '.parquet')
+        # write_compressed_pickle(df_tracked, fov.path + "tracks/" + metadata['fname'])
 
         particles = labels_to_particles(labels,df_tracked)
         store_img(labels,metadata,'labels')
@@ -104,9 +104,9 @@ class ImageProcessingPipeline:
         store_img(particles,metadata,'particles')
 
         #cleanup: delete the previous pickled tracks file
-        if metadata['timestep'] > 0:
-            fname_previous = f'{str(fov.index).zfill(3)}_{str(metadata["timestep"]-1).zfill(5)}.pkl'
-            os.remove(fov.path + "tracks/" + metadata['fname'] + '.zip')
+        # if metadata['timestep'] > 0:
+        #     fname_previous = f'{str(fov.index).zfill(3)}_{str(metadata["timestep"]-1).zfill(5)}.pkl'
+        #     os.remove(fov.path + "tracks/" + metadata['fname'] + '.zip')
 
 
         #TODO return something useful

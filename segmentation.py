@@ -1,13 +1,11 @@
 import numpy as np
 from skimage.measure import label
-import stardist 
-from stardist import random_label_cmap, _draw_polygons, export_imagej_rois
-from stardist.models import StarDist2D
-import csbdeep
+
 import skimage
 from skimage.segmentation import expand_labels
 from skimage.measure import regionprops_table
 import pandas as pd
+
 
 """
 Segmentation module for image processing.
@@ -45,38 +43,16 @@ class SegmentatorBinary(Segmentator):
         label_image = label(binary_image)
         return label_image
     
+class DummySegmentator(Segmentator):
+    """
+    Dummy segmentator.
 
-class SegmentatorStardist(Segmentator):
-    def __init__(self, model: str='2D_versatile_fluo', norm_min: float=1, norm_max: float=99, min_size: int = 30):
-        """
-        Initialize the SegmentatorStardist object.
+    This class implements a dummy segmentator that returns a label image where
+    the mask is the whole input image.
+    """
+    def segment(self, image: np.ndarray) -> np.ndarray:
+        return np.ones_like(image)
 
-        Parameters:
-        model_path (str): The path to the pre-trained model (or name of pretrained network). Defaults to '2D_versatile_fluo'
-        norm_min (float): The minimum value for normalization. Defaults to 1.
-        norm_max (float): The maximum value for normalization. Defaults to 99.
-        min_size (int): The minimal object size. Defaults to 30. If 0, no filtering is performed. 
-        
-        """
-        
-        self.model = StarDist2D.from_pretrained(model)
-        #self.model.load_weights(model_path)
-        self.norm_min = norm_min
-        self.norm_max = norm_max
-        self.min_size = min_size #minimal object size
-
-
-    def segment(self, img: np.ndarray) -> np.ndarray:
-        """
-        Run the stardist model on data and do post-processing (remove small cells)
-        """
-        img_normed =  csbdeep.utils.normalize(img,self.norm_min,self.norm_max)
-        labels, details = self.model.predict_instances(img_normed)
-        if self.min_size>0:
-            #remove cells below threshold
-            labels = skimage.morphology.remove_small_objects(labels,min_size = self.min_size, connectivity =1)
-        return labels
-    
 
 def extract_ring(labels, margin = 2, distance = 10):#distance = 10 for 40x; 4px for 20x
     '''Create the cytosolic rings for biosensor dependant on nuclear/cytosolic fluorescence intensity.

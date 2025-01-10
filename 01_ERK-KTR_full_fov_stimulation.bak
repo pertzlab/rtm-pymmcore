@@ -1,0 +1,1230 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# System Init"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "from fov import FOV\n",
+    "from queue import Queue\n",
+    "import numpy as np\n",
+    "from matplotlib import pyplot as plt\n",
+    "#from napari import Viewer\n",
+    "import numpy as np\n",
+    "from queue import Queue\n",
+    "from pymmcore_plus import CMMCorePlus\n",
+    "from useq import MDAEvent\n",
+    "from useq._channel import Channel\n",
+    "#from MDAEngine_DMD import MDAEngine_DMD\n",
+    "import pandas as pd\n",
+    "import random\n",
+    "from utils import ImgType, MetadataDict\n",
+    "#from stimulation import StimExtraParameters\n",
+    "#from dmd import DMD\n",
+    "from hardware import load_config\n",
+    "import os\n",
+    "from datetime import datetime\n",
+    "import napari\n",
+    "import pymmcore_widgets\n",
+    "#import dmd\n",
+    "\n",
+    "from napari_micromanager import MainWindow\n",
+    "from napari_micromanager._core_link import CoreViewerLink\n",
+    "\n",
+    "\n",
+    "import skimage\n",
+    "import useq\n",
+    "\n",
+    "\n",
+    "# from tracking import TrackerTrackpy\n",
+    "# from controller import Controller, Analyzer\n",
+    "\n",
+    "from utils import create_folders\n",
+    "import numpy as np\n",
+    "import pymmcore_plus\n",
+    "\n",
+    "import time\n",
+    "\n",
+    "from useq._mda_event import SLMImage\n",
+    "import useq\n",
+    "import requests\n",
+    "\n",
+    "mmc = pymmcore_plus.CMMCorePlus()\n",
+    "mmc.loadSystemConfiguration(\"E:\\\\MicroManagerConfigs\\\\Ti2CicercoConfig_w_DMD_9_w_ttl.cfg\")\n",
+    "\n",
+    "# def wakeup_laser(lumencore_ip=\"192.168.201.200\"):\n",
+    "#     url = f\"http://{lumencore_ip}/service/?command=WAKEUP\"\n",
+    "#     requests.get(url)\n",
+    "# wakeup_laser()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### DMD Full On"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-09 09:56:25,949 - pymmcore-plus - INFO - (_runner.py:329) MDA Started: GeneratorMDASequence()\u001b[0m\n",
+      "\u001b[38;20m2025-01-09 09:56:25,951 - pymmcore-plus - INFO - (_runner.py:290) slm_image=SLMImage(data=True)\u001b[0m\n",
+      "\u001b[38;20m2025-01-09 09:56:26,143 - pymmcore-plus - INFO - (_runner.py:416) MDA Finished: GeneratorMDASequence()\u001b[0m\n"
+     ]
+    }
+   ],
+   "source": [
+    "# %%capture\n",
+    "slm_dev = mmc.getSLMDevice()\n",
+    "slm_width = mmc.getSLMWidth(slm_dev)\n",
+    "slm_height = mmc.getSLMHeight(slm_dev)\n",
+    "\n",
+    "event_slm_on = MDAEvent(slm_image=SLMImage(data=True))\n",
+    "mmc.mda.run([event_slm_on])# to only have fov of DMD \n",
+    "mmc.setROI(150, 150, 1900, 1900)\n",
+    "mmc.setChannelGroup(channelGroup='CF_DMD')\n",
+    "\n",
+    "mmc.setProperty(\"LedDMD\", \"Cyan_Level\", 100)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "mm_wdg._core_link.cleanup()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "mm_wdg._core_link = CoreViewerLink(viewer, mmc)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-08 16:00:27,032 - pymmcore-plus - INFO - (_runner.py:329) MDA Started: GeneratorMDASequence()\u001b[0m\n",
+      "\u001b[38;20m2025-01-08 16:00:27,038 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 0} channel=Channel(config='CyanStim', group='CF_DMD') exposure=1000.0 min_start_time=0.0 reset_event_timer=True\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Frame {'t': 0} received: (1900, 1900)\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-08 16:00:37,039 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 1} channel=Channel(config='CyanStim', group='CF_DMD') exposure=1000.0 min_start_time=10.0\u001b[0m\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Frame {'t': 1} received: (1900, 1900)\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-08 16:00:42,039 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 2} channel=Channel(config='CyanStim', group='CF_DMD') exposure=1000.0 min_start_time=15.0\u001b[0m\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "WARNING: QBasicTimer::start: QBasicTimer can only be used with threads started with QThread\n",
+      "\u001b[38;20m2025-01-08 16:00:43,208 - pymmcore-plus - INFO - (_runner.py:416) MDA Finished: GeneratorMDASequence()\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Frame {'t': 2} received: (1900, 1900)\n"
+     ]
+    }
+   ],
+   "source": [
+    "q = Queue()                    # create the queue\n",
+    "STOP = object()                # any object can serve as the sentinel\n",
+    "q_iterator = iter(q.get, STOP) # create the queue-backed iterable\n",
+    "\n",
+    "# start the acquisition in a separate thread\n",
+    "mmc.run_mda(q_iterator)\n",
+    "\n",
+    "# (optional) connect some callback to the imageReady signal\n",
+    "@mmc.mda.events.frameReady.connect\n",
+    "def on_frame(img, event):\n",
+    "    print(f'Frame {event.index} received: {img.shape}')\n",
+    "\n",
+    "\n",
+    "ev1 = useq.MDAEvent(index= {\"t\": 0}, channel={\"config\": \"CyanStim\", \"group\": \"CF_DMD\"}, exposure=1000, min_start_time=0, reset_event_timer=True)\n",
+    "ev2 = useq.MDAEvent(index= {\"t\": 1}, channel={\"config\": \"CyanStim\", \"group\": \"CF_DMD\"}, exposure=1000, min_start_time=10.0)\n",
+    "ev3 = useq.MDAEvent(index= {\"t\": 2}, channel={\"config\": \"CyanStim\", \"group\": \"CF_DMD\"}, exposure=1000, min_start_time=15.0)\n",
+    "\n",
+    "q.put(ev1)\n",
+    "q.put(ev2)\n",
+    "q.put(ev3)\n",
+    "q.put(STOP)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Napari Micromanger User Interface"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "(<napari._qt.widgets.qt_viewer_dock_widget.QtViewerDockWidget at 0x1751dcfecb0>,\n",
+       " <napari_micromanager.main_window.MainWindow at 0x1751d5777f0>)"
+      ]
+     },
+     "execution_count": 6,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "viewer = napari.Viewer()\n",
+    "mm_wdg = MainWindow(viewer)\n",
+    "viewer.window.add_dock_widget(mm_wdg)"
+   ]
+  },
+  {
+   "attachments": {},
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## create a DF with all planned acquisitions and stimulations"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 17,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Directory C:\\test\\stim already exists\n",
+      "Directory C:\\test\\raw already exists\n",
+      "Directory C:\\test\\labels already exists\n",
+      "Directory C:\\test\\stim_mask already exists\n",
+      "Directory C:\\test\\tracks already exists\n",
+      "Directory C:\\test\\labels_rings already exists\n",
+      "Directory C:\\test\\particles already exists\n"
+     ]
+    }
+   ],
+   "source": [
+    "df_acquire = pd.DataFrame(columns=['fov', 'timestep', 'time','time_experiment', 'treatment', 'acquired','stim', 'channels', 'channel_stim'])\n",
+    "\n",
+    "path = \"C:\\\\test\\\\\"\n",
+    "create_folders(path,['stim','raw','labels','stim_mask','tracks','labels_rings','particles'])\n",
+    "\n",
+    "time_between_frames = 5 #time in seconds between frames\n",
+    "stim_timesteps = [1]  # list of timesteps\n",
+    "\n",
+    "timesteps = range(3)  # 0-20\n",
+    "channels = ['CyanStim']\n",
+    "channels_exposure = [200]\n",
+    "channels_power = [2]\n",
+    "channel_stim = ['CyanStim']\n",
+    "channel_stim_exposures = [500]\n",
+    "channel_stim_power = [2]\n",
+    "treatment = {'stim_property': 'global'}\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "\n",
+    "# fovs:list[FOV] = []\n",
+    "\n",
+    "# data_mda_fovs = data_mda.value()\n",
+    "\n",
+    "# for i, row in enumerate(data_mda_fovs.stage_positions):\n",
+    "#     fov = FOV(pos=(row.x, row.y),\n",
+    "#               index=i,\n",
+    "#               name=row.name,\n",
+    "#               path=path,\n",
+    "#               metadata={},\n",
+    "#               treatment={'stim_property': 'global'},\n",
+    "#               )\n",
+    "#     fovs.append(fov)\n",
+    "\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 29,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "fovs:list[FOV] = []\n",
+    "fovs.append(FOV(pos=mmc.getXYPosition(), index=0, name=\"test\", path=path, metadata={}, treatment={'stim_property': 'global'}))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 30,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "dfs = []\n",
+    "for fov in fovs:\n",
+    "    # well_column = int(fov.name.split('_')[0][1:])\n",
+    "    # well_row = fov.name.split('_')[0][0]\n",
+    "    well_column = 1\n",
+    "    well_row = 'A'\n",
+    "    cell_lines = [\"optoFGFR1\", \"optoERK1\", \"optoERK2\", \"optoTrkA1\"]\n",
+    "    cell_line = cell_lines[well_column]\n",
+    "    for timestep in timesteps:\n",
+    "        new_row = { 'fov_object': fov,\n",
+    "                    'fov':fov.index,\n",
+    "                    'name':fov.name,\n",
+    "                    'well_row': well_row,\n",
+    "                    'well_column': int(well_column),\n",
+    "                    'cell_line': cell_line,\n",
+    "                    'timestep': timestep,\n",
+    "                    'time': timestep*time_between_frames,\n",
+    "                    'treatment': fov.treatment,\n",
+    "                    'acquired': False,\n",
+    "                    'stim': timestep in stim_timesteps,\n",
+    "                    'channels': channels,\n",
+    "                    'channels_exposure':channels_exposure,\n",
+    "                    'channel_power': channels_power,\n",
+    "                    'channel_stim' : channel_stim,\n",
+    "                    'channel_stim_exposure' : channel_stim_exposures,\n",
+    "                    'channel_stim_power' : channel_stim_power,\n",
+    "                    'fname' : f'{str(fov.index).zfill(3)}_{str(timestep).zfill(5)}',\n",
+    "                    }\n",
+    "        dfs.append(new_row)\n",
+    "\n",
+    "df_acquire = pd.DataFrame(dfs)\n",
+    "df_acquire = df_acquire.sort_values(by=['timestep', 'fov'])\n",
+    "\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 31,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/html": [
+       "<div>\n",
+       "<style scoped>\n",
+       "    .dataframe tbody tr th:only-of-type {\n",
+       "        vertical-align: middle;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe tbody tr th {\n",
+       "        vertical-align: top;\n",
+       "    }\n",
+       "\n",
+       "    .dataframe thead th {\n",
+       "        text-align: right;\n",
+       "    }\n",
+       "</style>\n",
+       "<table border=\"1\" class=\"dataframe\">\n",
+       "  <thead>\n",
+       "    <tr style=\"text-align: right;\">\n",
+       "      <th></th>\n",
+       "      <th>fov_object</th>\n",
+       "      <th>fov</th>\n",
+       "      <th>name</th>\n",
+       "      <th>well_row</th>\n",
+       "      <th>well_column</th>\n",
+       "      <th>cell_line</th>\n",
+       "      <th>timestep</th>\n",
+       "      <th>time</th>\n",
+       "      <th>treatment</th>\n",
+       "      <th>acquired</th>\n",
+       "      <th>stim</th>\n",
+       "      <th>channels</th>\n",
+       "      <th>channels_exposure</th>\n",
+       "      <th>channel_power</th>\n",
+       "      <th>channel_stim</th>\n",
+       "      <th>channel_stim_exposure</th>\n",
+       "      <th>channel_stim_power</th>\n",
+       "      <th>fname</th>\n",
+       "    </tr>\n",
+       "  </thead>\n",
+       "  <tbody>\n",
+       "    <tr>\n",
+       "      <th>0</th>\n",
+       "      <td>&lt;fov.FOV object at 0x0000025627DA7390&gt;</td>\n",
+       "      <td>0</td>\n",
+       "      <td>test</td>\n",
+       "      <td>A</td>\n",
+       "      <td>1</td>\n",
+       "      <td>optoERK1</td>\n",
+       "      <td>0</td>\n",
+       "      <td>0</td>\n",
+       "      <td>{'stim_property': 'global'}</td>\n",
+       "      <td>False</td>\n",
+       "      <td>False</td>\n",
+       "      <td>[CyanStim]</td>\n",
+       "      <td>[200]</td>\n",
+       "      <td>[2]</td>\n",
+       "      <td>[CyanStim]</td>\n",
+       "      <td>[500]</td>\n",
+       "      <td>[2]</td>\n",
+       "      <td>000_00000</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>1</th>\n",
+       "      <td>&lt;fov.FOV object at 0x0000025627DA7390&gt;</td>\n",
+       "      <td>0</td>\n",
+       "      <td>test</td>\n",
+       "      <td>A</td>\n",
+       "      <td>1</td>\n",
+       "      <td>optoERK1</td>\n",
+       "      <td>1</td>\n",
+       "      <td>5</td>\n",
+       "      <td>{'stim_property': 'global'}</td>\n",
+       "      <td>False</td>\n",
+       "      <td>True</td>\n",
+       "      <td>[CyanStim]</td>\n",
+       "      <td>[200]</td>\n",
+       "      <td>[2]</td>\n",
+       "      <td>[CyanStim]</td>\n",
+       "      <td>[500]</td>\n",
+       "      <td>[2]</td>\n",
+       "      <td>000_00001</td>\n",
+       "    </tr>\n",
+       "    <tr>\n",
+       "      <th>2</th>\n",
+       "      <td>&lt;fov.FOV object at 0x0000025627DA7390&gt;</td>\n",
+       "      <td>0</td>\n",
+       "      <td>test</td>\n",
+       "      <td>A</td>\n",
+       "      <td>1</td>\n",
+       "      <td>optoERK1</td>\n",
+       "      <td>2</td>\n",
+       "      <td>10</td>\n",
+       "      <td>{'stim_property': 'global'}</td>\n",
+       "      <td>False</td>\n",
+       "      <td>False</td>\n",
+       "      <td>[CyanStim]</td>\n",
+       "      <td>[200]</td>\n",
+       "      <td>[2]</td>\n",
+       "      <td>[CyanStim]</td>\n",
+       "      <td>[500]</td>\n",
+       "      <td>[2]</td>\n",
+       "      <td>000_00002</td>\n",
+       "    </tr>\n",
+       "  </tbody>\n",
+       "</table>\n",
+       "</div>"
+      ],
+      "text/plain": [
+       "                               fov_object  fov  name well_row  well_column  \\\n",
+       "0  <fov.FOV object at 0x0000025627DA7390>    0  test        A            1   \n",
+       "1  <fov.FOV object at 0x0000025627DA7390>    0  test        A            1   \n",
+       "2  <fov.FOV object at 0x0000025627DA7390>    0  test        A            1   \n",
+       "\n",
+       "  cell_line  timestep  time                    treatment  acquired   stim  \\\n",
+       "0  optoERK1         0     0  {'stim_property': 'global'}     False  False   \n",
+       "1  optoERK1         1     5  {'stim_property': 'global'}     False   True   \n",
+       "2  optoERK1         2    10  {'stim_property': 'global'}     False  False   \n",
+       "\n",
+       "     channels channels_exposure channel_power channel_stim  \\\n",
+       "0  [CyanStim]             [200]           [2]   [CyanStim]   \n",
+       "1  [CyanStim]             [200]           [2]   [CyanStim]   \n",
+       "2  [CyanStim]             [200]           [2]   [CyanStim]   \n",
+       "\n",
+       "  channel_stim_exposure channel_stim_power      fname  \n",
+       "0                 [500]                [2]  000_00000  \n",
+       "1                 [500]                [2]  000_00001  \n",
+       "2                 [500]                [2]  000_00002  "
+      ]
+     },
+     "execution_count": 31,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "df_acquire"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 22,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Current timestep: 0\n",
+      "CyanStim\n",
+      "Current timestep: 1\n",
+      "CyanStim\n",
+      "Current timestep: 2\n",
+      "CyanStim\n"
+     ]
+    }
+   ],
+   "source": [
+    "event_list = []\n",
+    "current_channelgroup = mmc.getChannelGroup()\n",
+    "\n",
+    "for timestep in df_acquire['timestep'].unique():\n",
+    "    print(f\"Current timestep: {timestep}\")\n",
+    "# extract the lines with the current timestep from the DF\n",
+    "    current_timestep_df = df_acquire[df_acquire['timestep'] == timestep]\n",
+    "\n",
+    "    for index, row in current_timestep_df.iterrows():\n",
+    "        fov : FOV = row['fov_object']\n",
+    "        timestep = row['timestep']\n",
+    "        stim = row['stim']\n",
+    "        channels = row['channels']\n",
+    "        channels_exposure = row['channels_exposure']\n",
+    "        channel_stim = row['channel_stim']\n",
+    "        channel_stim_exposure = row['channel_stim_exposure']\n",
+    "\n",
+    "        metadata_dict = dict(row)\n",
+    "        metadata_dict['img_type']= ImgType.IMG_RAW\n",
+    "        metadata_dict['last_channel']= channels[-1]\n",
+    "                                    \n",
+    "            \n",
+    "        ### Capture the raw image without DMD illumination\n",
+    "        for i,channel in enumerate(channels):\n",
+    "            last_channel:bool = i == len(channels)-1\n",
+    "            metadata_dict['last_channel'] = last_channel\n",
+    "            metadata_dict['channel'] = channel\n",
+    "            print(channel)\n",
+    "\n",
+    "            acquisition_event = useq.MDAEvent(\n",
+    "                    index= {\"t\": timestep}, # the index of the event in the sequence\n",
+    "                    channel = {\"config\":channel, \"group\":current_channelgroup}, # the channel presets we want to acquire\n",
+    "                    metadata = metadata_dict, # (custom) metadata that is attatched to the event/image\n",
+    "                    x_pos = fov.pos[0], # only one pos for all channels\n",
+    "                    y_pos = fov.pos[1],\n",
+    "                    # sequence = fov.mda_sequence,\n",
+    "                    min_start_time = float(row['time']),\n",
+    "                    exposure=channels_exposure[i]\n",
+    "                )\n",
+    "            \n",
+    "            #add the event to the acquisition queue\n",
+    "            event_list.append(acquisition_event)\n",
+    "\n",
+    "        if stim:\n",
+    "            if len(channel_stim) == 1:\n",
+    "                channel_stim = channel_stim[0]\n",
+    "                channel_stim_exposure = channel_stim_exposure[0]\n",
+    "            ### expose the image\n",
+    "            metadata_dict['img_type'] = ImgType.IMG_STIM #change the img_type and channels, rest stays the same\n",
+    "            metadata_dict['last_channel'] = True\n",
+    "            metadata_dict['channel'] = channel_stim      \n",
+    "            metadata_dict['stim'] = True\n",
+    "\n",
+    "            stimulation_event = useq.MDAEvent(\n",
+    "                index= {\"t\": timestep}, # the index of the event in the sequence\n",
+    "                channel = {\"config\":channel_stim, \"group\":current_channelgroup}, # the channel presets we want to acquire\n",
+    "                metadata = metadata_dict, # (custom) metadata that is attatched to the event/image\n",
+    "                x_pos = fov.pos[0], # only one pos for all channels\n",
+    "                y_pos = fov.pos[1],\n",
+    "                exposure = channel_stim_exposure, \n",
+    "                min_start_time=float(row['time'])\n",
+    "            )\n",
+    "            event_list.append(stimulation_event)   "
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 9,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "%load_ext autoreload\n",
+    "%autoreload 2\n",
+    "from controller import Analyzer\n",
+    "analyzer = Analyzer(None)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Current timestep: 0\n",
+      "CyanStim\n",
+      "Current timestep: 1\n",
+      "CyanStim\n",
+      "Current timestep: 2\n",
+      "CyanStim\n",
+      "Current timestep: 3\n",
+      "CyanStim\n",
+      "Current timestep: 4\n",
+      "CyanStim\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-08 16:33:28,162 - pymmcore-plus - INFO - (_runner.py:329) MDA Started: GeneratorMDASequence()\u001b[0m\n",
+      "\u001b[38;20m2025-01-08 16:33:28,168 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 0} channel=Channel(config='CyanStim', group='CF_DMD') exposure=200.0 min_start_time=0.0 x_pos=1140.5 y_pos=622.7 metadata={'fov_object': <fov.FOV object at 0x0000013B89B00790>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 0, 'time': 0, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': False, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00000', 'img_type': <ImgType.IMG_RAW: 1>, 'last_channel': True, 'channel': 'CyanStim'}\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "saving image\n",
+      "Store raw image\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-08 16:33:33,168 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 1} channel=Channel(config='CyanStim', group='CF_DMD') exposure=200.0 min_start_time=5.0 x_pos=1140.5 y_pos=622.7 metadata={'fov_object': <fov.FOV object at 0x0000013B89B00790>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 1, 'time': 5, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': False, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00001', 'img_type': <ImgType.IMG_RAW: 1>, 'last_channel': True, 'channel': 'CyanStim'}\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "saving image\n",
+      "Store raw image\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-08 16:33:38,168 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 2} channel=Channel(config='CyanStim', group='CF_DMD') exposure=200.0 min_start_time=10.0 x_pos=1140.5 y_pos=622.7 metadata={'fov_object': <fov.FOV object at 0x0000013B89B00790>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 2, 'time': 10, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': True, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00002', 'img_type': <ImgType.IMG_RAW: 1>, 'last_channel': True, 'channel': 'CyanStim'}\u001b[0m\n",
+      "\u001b[38;20m2025-01-08 16:33:38,507 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 2} channel=Channel(config='CyanStim', group='CF_DMD') exposure=500.0 min_start_time=10.0 x_pos=1140.5 y_pos=622.7 metadata={'fov_object': <fov.FOV object at 0x0000013B89B00790>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 2, 'time': 10, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': True, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00002', 'img_type': <ImgType.IMG_STIM: 2>, 'last_channel': True, 'channel': 'CyanStim'}\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store stim image\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-08 16:33:43,168 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 3} channel=Channel(config='CyanStim', group='CF_DMD') exposure=200.0 min_start_time=15.0 x_pos=1140.5 y_pos=622.7 metadata={'fov_object': <fov.FOV object at 0x0000013B89B00790>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 3, 'time': 15, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': False, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00003', 'img_type': <ImgType.IMG_RAW: 1>, 'last_channel': True, 'channel': 'CyanStim'}\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "saving image\n",
+      "Store raw image\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-08 16:33:48,168 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 4} channel=Channel(config='CyanStim', group='CF_DMD') exposure=200.0 min_start_time=20.0 x_pos=1140.5 y_pos=622.7 metadata={'fov_object': <fov.FOV object at 0x0000013B89B00790>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 4, 'time': 20, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': False, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00004', 'img_type': <ImgType.IMG_RAW: 1>, 'last_channel': True, 'channel': 'CyanStim'}\u001b[0m\n",
+      "\u001b[38;20m2025-01-08 16:33:48,501 - pymmcore-plus - INFO - (_runner.py:416) MDA Finished: GeneratorMDASequence()\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "saving image\n",
+      "Store raw image\n"
+     ]
+    }
+   ],
+   "source": [
+    "import useq\n",
+    "import queue\n",
+    "whole_fov_stim = True\n",
+    "class Controller:\n",
+    "    STOP_EVENT = object()\n",
+    "\n",
+    "    def __init__(self, analyzer: Analyzer, mmc: CMMCorePlus, queue: Queue, dmd=None):\n",
+    "        self._queue = queue  # queue of MDAEvents\n",
+    "        self._analyzer = analyzer  # analyzer object\n",
+    "        self._results: dict = {}  # results of analysis\n",
+    "        self._mmc = mmc\n",
+    "        self._frame_buffer = [] # buffer to hold the frames until one sequence is complete\n",
+    "        self._dmd = dmd\n",
+    "        mmc.mda.events.frameReady.connect(self._on_frame_ready)\n",
+    "\n",
+    "\n",
+    "    def _on_frame_ready(self, img: np.ndarray, event: MDAEvent) -> None:\n",
+    "        # Analyze the image\n",
+    "        self._frame_buffer.append(img)\n",
+    "        \n",
+    "        # check if it's the last acquisition for this MDAsequence\n",
+    "        if event.metadata['last_channel']:\n",
+    "            frame_complete = np.stack(self._frame_buffer, axis=-1)\n",
+    "            #move new axis to the first position\n",
+    "            frame_complete = np.moveaxis(frame_complete, -1, 0)\n",
+    "\n",
+    "            self._frame_buffer = []\n",
+    "            #self._results = self._analyzer.run(frame_complete,event.metadata)\n",
+    "            self._results = self._analyzer.run(frame_complete,event) \n",
+    "        \n",
+    "\n",
+    "    def stop_run(self): \n",
+    "        self._queue.put(self.STOP_EVENT)\n",
+    "        self._mmc.mda.cancel()\n",
+    "        \n",
+    "    def is_running(self):\n",
+    "        return self._queue.qsize() > 0\n",
+    "\n",
+    "    def run(self, df_acquire:pd.DataFrame):\n",
+    "        current_channelgroup = self._mmc.getChannelGroup()\n",
+    "\n",
+    "        #convert queue to an iterable\n",
+    "        queue_sequence = iter(self._queue.get, self.STOP_EVENT)\n",
+    "        self._mmc.run_mda(queue_sequence)\n",
+    "\n",
+    "        for timestep in df_acquire['timestep'].unique():\n",
+    "            print(f\"Current timestep: {timestep}\")\n",
+    "        # extract the lines with the current timestep from the DF\n",
+    "            current_timestep_df = df_acquire[df_acquire['timestep'] == timestep]\n",
+    "\n",
+    "            for index, row in current_timestep_df.iterrows():\n",
+    "                fov : FOV = row['fov_object']\n",
+    "                timestep = row['timestep']\n",
+    "                stim = row['stim']\n",
+    "                channels = row['channels']\n",
+    "                channels_exposure = row['channels_exposure']\n",
+    "                channel_stim = row['channel_stim']\n",
+    "                channel_stim_exposure = row['channel_stim_exposure']\n",
+    "\n",
+    "                metadata_dict = dict(row)\n",
+    "                metadata_dict['img_type']= ImgType.IMG_RAW\n",
+    "                metadata_dict['last_channel']= channels[-1]\n",
+    "                                            \n",
+    "                if self._dmd != None:\n",
+    "                    metadata_dict['stim_mask'] = self._dmd.sample_mask_on\n",
+    "                    \n",
+    "                ### Capture the raw image without DMD illumination\n",
+    "                for i,channel in enumerate(channels):\n",
+    "                    last_channel:bool = i == len(channels)-1\n",
+    "                    metadata_dict['last_channel'] = last_channel\n",
+    "                    metadata_dict['channel'] = channel\n",
+    "                    print(channel)\n",
+    "\n",
+    "                    acquisition_event = useq.MDAEvent(\n",
+    "                            index= {\"t\": timestep}, # the index of the event in the sequence\n",
+    "                            channel = {\"config\":channel, \"group\":current_channelgroup}, # the channel presets we want to acquire\n",
+    "                            metadata = metadata_dict, # (custom) metadata that is attatched to the event/image\n",
+    "                            x_pos = fov.pos[0], # only one pos for all channels\n",
+    "                            y_pos = fov.pos[1],\n",
+    "                            # sequence = fov.mda_sequence,\n",
+    "                            min_start_time = float(row['time']),\n",
+    "                            exposure=channels_exposure[i]\n",
+    "                        )\n",
+    "                    \n",
+    "                    #add the event to the acquisition queue\n",
+    "                    self._queue.put(acquisition_event)\n",
+    "\n",
+    "                if stim:\n",
+    "                    if not whole_fov_stim:\n",
+    "                        ### Stimulate using the DMD if stim is True\n",
+    "                        stim_mask = fov.stim_mask_queue.get(timeout=10) #wait max 10s for mask\n",
+    "                        #affine transform the mask to the DMD coordinates\n",
+    "                        if self._dmd != None:\n",
+    "                            stim_mask = self._dmd.affine_transform(stim_mask)\n",
+    "\n",
+    "                    if len(channel_stim) == 1:\n",
+    "                        channel_stim = channel_stim[0]\n",
+    "                        channel_stim_exposure = channel_stim_exposure[0]\n",
+    "                    ### expose the image\n",
+    "                    metadata_dict['img_type'] = ImgType.IMG_STIM #change the img_type and channels, rest stays the same\n",
+    "                    metadata_dict['last_channel'] = True\n",
+    "                    metadata_dict['channel'] = channel_stim      \n",
+    "                    metadata_dict['stim'] = True\n",
+    "\n",
+    "                    stimulation_event = useq.MDAEvent(\n",
+    "                        index= {\"t\": timestep}, # the index of the event in the sequence\n",
+    "                        channel = {\"config\":channel_stim, \"group\":current_channelgroup}, # the channel presets we want to acquire\n",
+    "                        metadata = metadata_dict, # (custom) metadata that is attatched to the event/image\n",
+    "                        x_pos = fov.pos[0], # only one pos for all channels\n",
+    "                        y_pos = fov.pos[1],\n",
+    "                        exposure = channel_stim_exposure, \n",
+    "                        min_start_time=float(row['time'])\n",
+    "                    )\n",
+    "                    self._queue.put(stimulation_event)   \n",
+    "\n",
+    "        # Reached end of acquisition DF\n",
+    "        for fov in df_acquire['fov_object'].unique():\n",
+    "            fov.tracks = fov.tracks_queue.get(timeout=10) #wait max 10s for tracks\n",
+    "\n",
+    "        # # Put the stop event in the queue\n",
+    "        self._queue.put(self.STOP_EVENT)\n",
+    "\n",
+    "queue = Queue()\n",
+    "controller = Controller(analyzer, mmc, queue)\n",
+    "controller.run(df_acquire)"
+   ]
+  },
+  {
+   "attachments": {},
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Run on system with DMD"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 33,
+   "metadata": {},
+   "outputs": [
+    {
+     "data": {
+      "text/plain": [
+       "[MDAEvent(index={'t': 0}, channel=Channel(config='CyanStim', group='CF_DMD'), exposure=200.0, min_start_time=0.0, x_pos=1140.1000000000001, y_pos=636.1, metadata={'fov_object': <fov.FOV object at 0x0000025604D8ED10>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 0, 'time': 0, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': False, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00000', 'img_type': <ImgType.IMG_RAW: 1>, 'last_channel': True, 'channel': 'CyanStim'}),\n",
+       " MDAEvent(index={'t': 1}, channel=Channel(config='CyanStim', group='CF_DMD'), exposure=200.0, min_start_time=5.0, x_pos=1140.1000000000001, y_pos=636.1, metadata={'fov_object': <fov.FOV object at 0x0000025604D8ED10>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 1, 'time': 5, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': True, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00001', 'img_type': <ImgType.IMG_RAW: 1>, 'last_channel': True, 'channel': 'CyanStim'}),\n",
+       " MDAEvent(index={'t': 1}, channel=Channel(config='CyanStim', group='CF_DMD'), exposure=500.0, min_start_time=5.0, x_pos=1140.1000000000001, y_pos=636.1, metadata={'fov_object': <fov.FOV object at 0x0000025604D8ED10>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 1, 'time': 5, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': True, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00001', 'img_type': <ImgType.IMG_STIM: 2>, 'last_channel': True, 'channel': 'CyanStim'}),\n",
+       " MDAEvent(index={'t': 2}, channel=Channel(config='CyanStim', group='CF_DMD'), exposure=200.0, min_start_time=10.0, x_pos=1140.1000000000001, y_pos=636.1, metadata={'fov_object': <fov.FOV object at 0x0000025604D8ED10>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 2, 'time': 10, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': False, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00002', 'img_type': <ImgType.IMG_RAW: 1>, 'last_channel': True, 'channel': 'CyanStim'})]"
+      ]
+     },
+     "execution_count": 33,
+     "metadata": {},
+     "output_type": "execute_result"
+    }
+   ],
+   "source": [
+    "event_list"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "The autoreload extension is already loaded. To reload it, use:\n",
+      "  %reload_ext autoreload\n",
+      "Current timestep: 0\n",
+      "Current timestep: 1\n",
+      "Current timestep: 2\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-09 10:38:03,846 - pymmcore-plus - INFO - (_runner.py:329) MDA Started: GeneratorMDASequence()\u001b[0m\n",
+      "\u001b[38;20m2025-01-09 10:38:03,849 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 0} channel=Channel(config='CyanStim', group='CF_DMD') exposure=200.0 min_start_time=0.0 x_pos=1140.1000000000001 y_pos=636.1 metadata={'fov_object': <fov.FOV object at 0x0000025627DA7390>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 0, 'time': 0, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': False, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00000', 'img_type': <ImgType.IMG_RAW: 1>, 'last_channel': True, 'channel': 'CyanStim'}\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-09 10:38:08,850 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 1} channel=Channel(config='CyanStim', group='CF_DMD') exposure=200.0 min_start_time=5.0 x_pos=1140.1000000000001 y_pos=636.1 metadata={'fov_object': <fov.FOV object at 0x0000025627DA7390>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 1, 'time': 5, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': True, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00001', 'img_type': <ImgType.IMG_RAW: 1>, 'last_channel': True, 'channel': 'CyanStim'}\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-09 10:38:09,428 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 1} channel=Channel(config='CyanStim', group='CF_DMD') exposure=500.0 min_start_time=5.0 x_pos=1140.1000000000001 y_pos=636.1 metadata={'fov_object': <fov.FOV object at 0x0000025627DA7390>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 1, 'time': 5, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': True, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00001', 'img_type': <ImgType.IMG_STIM: 2>, 'last_channel': True, 'channel': 'CyanStim'}\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store stim image\n",
+      "saving image\n",
+      "Store stim image\n",
+      "saving image\n",
+      "Store stim image\n",
+      "saving image\n",
+      "Store stim image\n",
+      "saving image\n",
+      "Store stim image\n",
+      "saving image\n",
+      "Store stim image\n",
+      "saving image\n",
+      "Store stim image\n",
+      "saving image\n",
+      "Store stim image\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-09 10:38:13,850 - pymmcore-plus - INFO - (_runner.py:290) index={'t': 2} channel=Channel(config='CyanStim', group='CF_DMD') exposure=200.0 min_start_time=10.0 x_pos=1140.1000000000001 y_pos=636.1 metadata={'fov_object': <fov.FOV object at 0x0000025627DA7390>, 'fov': 0, 'name': 'test', 'well_row': 'A', 'well_column': 1, 'cell_line': 'optoERK1', 'timestep': 2, 'time': 10, 'treatment': {'stim_property': 'global'}, 'acquired': False, 'stim': False, 'channels': ['CyanStim'], 'channels_exposure': [200], 'channel_power': [2], 'channel_stim': ['CyanStim'], 'channel_stim_exposure': [500], 'channel_stim_power': [2], 'fname': '000_00002', 'img_type': <ImgType.IMG_RAW: 1>, 'last_channel': True, 'channel': 'CyanStim'}\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n",
+      "saving image\n",
+      "Store raw image\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\u001b[38;20m2025-01-09 10:38:14,386 - pymmcore-plus - INFO - (_runner.py:416) MDA Finished: GeneratorMDASequence()\u001b[0m\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "saving image\n",
+      "Store raw image\n"
+     ]
+    }
+   ],
+   "source": [
+    "%load_ext autoreload\n",
+    "%autoreload 2\n",
+    "\n",
+    "from add_frame import ImageProcessingPipeline\n",
+    "from segmentation import DummySegmentator\n",
+    "from stimulation import StimWholeFOV    \n",
+    "from controller import Controller, Analyzer\n",
+    "from tracking import TrackerNoTracking\n",
+    "\n",
+    "segmentator = DummySegmentator()\n",
+    "stimulator = StimWholeFOV()\n",
+    "#tracker = TrackerTrackpy(search_range=10,memory=3,adaptive_stop=1,adaptive_step=0.8)\n",
+    "tracker = TrackerNoTracking()\n",
+    "\n",
+    "pipeline = ImageProcessingPipeline(segmentator,stimulator,tracker)\n",
+    "analyzer = Analyzer(pipeline)\n",
+    "queue = Queue()\n",
+    "controller = Controller(analyzer, mmc, queue)\n",
+    "controller.run(df_acquire)\n",
+    "\n",
+    "# dmd = DMD(mmc)\n",
+    "\n",
+    "# dmd.calibrate()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 40,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "mmc.unloadAllDevices()"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Found model '2D_versatile_fluo' for 'StarDist2D'.\n",
+      "Loading network weights from 'weights_best.h5'.\n",
+      "Loading thresholds from 'thresholds.json'.\n",
+      "Using default values: prob_thresh=0.479071, nms_thresh=0.3.\n"
+     ]
+    }
+   ],
+   "source": [
+    "from add_frame import ImageProcessingPipeline\n",
+    "from segmentation import SegmentatorStardist\n",
+    "from pymmcore_plus.mda import MDAEngine\n",
+    "from stimulation import StimExtraParameters, StimCircle\n",
+    "from controller import Analyzer\n",
+    "\n",
+    "segmentator = SegmentatorStardist('2D_versatile_fluo')\n",
+    "stimulator = StimExtraParameters()\n",
+    "stimulator = StimCircle()\n",
+    "tracker = TrackerTrackpy()\n",
+    "pipeline = ImageProcessingPipeline(segmentator,stimulator,tracker)\n",
+    "analyzer = Analyzer(pipeline)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "import napari\n",
+    "import zarr\n",
+    "import glob\n",
+    "from skimage.io import imread\n",
+    "from glob import glob\n",
+    "import dask.array as da\n",
+    "from dask import delayed\n",
+    "import os\n",
+    "import numpy as np\n",
+    "from magicgui import magicgui\n",
+    "import pandas as pd\n",
+    "\n",
+    "\n",
+    "\n",
+    "def tiff_to_lazy_da(path,folder,fov, zfill = 2):\n",
+    "    '''Read in all tiff files form the same FOV in a folder and load them lazily with dask. '''\n",
+    "    file_name_pattern = str(fov).zfill(zfill)+\"_*.tiff\"\n",
+    "    filenames = sorted(glob(path + os.path.join(str(folder),file_name_pattern)))\n",
+    "    # read the first file to get the shape and dtype\n",
+    "    # ASSUMES THAT ALL FILES SHARE THE SAME SHAPE and TYPE\n",
+    "\n",
+    "    sample = imread(filenames[0])\n",
+    "    \n",
+    "    lazy_imread = delayed(imread)  # lazy reader\n",
+    "    lazy_arrays = [lazy_imread(fn) for fn in filenames]\n",
+    "    dask_arrays = [\n",
+    "        da.from_delayed(delayed_reader, shape=sample.shape, dtype=sample.dtype)\n",
+    "        for delayed_reader in lazy_arrays\n",
+    "    ]\n",
+    "    # Stack into one large dask.array\n",
+    "    stack = da.stack(dask_arrays, axis=0)\n",
+    "    stack = np.squeeze(stack)\n",
+    "    return stack\n",
+    "\n",
+    "project_path = '/Volumes/imaging.data/lhinder/data/rtm_mm_data/exp_352/'\n",
+    "stack_raw = tiff_to_lazy_da(project_path, \"raw\", 0,zfill=2)\n",
+    "stack_stim = tiff_to_lazy_da(project_path, \"stim\", 0,zfill=2)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "ename": "NameError",
+     "evalue": "name 'stack_raw' is not defined",
+     "output_type": "error",
+     "traceback": [
+      "\u001b[1;31m---------------------------------------------------------------------------\u001b[0m",
+      "\u001b[1;31mNameError\u001b[0m                                 Traceback (most recent call last)",
+      "\u001b[1;32mc:\\Users\\micromanager\\Documents\\lhinder\\code\\rtm-pymmcore\\rtm.ipynb Cell 14\u001b[0m line \u001b[0;36m1\n\u001b[0;32m     <a href='vscode-notebook-cell:/c%3A/Users/micromanager/Documents/lhinder/code/rtm-pymmcore/rtm.ipynb#X22sZmlsZQ%3D%3D?line=10'>11</a>\u001b[0m \u001b[39m### RUN THIS IF YOU WANT TO TEST THE ACQUISITION WITHOUT ACTUAL HARDWARE\u001b[39;00m\n\u001b[0;32m     <a href='vscode-notebook-cell:/c%3A/Users/micromanager/Documents/lhinder/code/rtm-pymmcore/rtm.ipynb#X22sZmlsZQ%3D%3D?line=11'>12</a>\u001b[0m analyzer \u001b[39m=\u001b[39m Analyzer(pipeline)\n\u001b[1;32m---> <a href='vscode-notebook-cell:/c%3A/Users/micromanager/Documents/lhinder/code/rtm-pymmcore/rtm.ipynb#X22sZmlsZQ%3D%3D?line=12'>13</a>\u001b[0m controller \u001b[39m=\u001b[39m Controller(analyzer, mmc, queue,stack_raw\u001b[39m=\u001b[39mstack_raw,stack_stim\u001b[39m=\u001b[39mstack_stim)\n\u001b[0;32m     <a href='vscode-notebook-cell:/c%3A/Users/micromanager/Documents/lhinder/code/rtm-pymmcore/rtm.ipynb#X22sZmlsZQ%3D%3D?line=15'>16</a>\u001b[0m \u001b[39m# Start the acquisition\u001b[39;00m\n\u001b[0;32m     <a href='vscode-notebook-cell:/c%3A/Users/micromanager/Documents/lhinder/code/rtm-pymmcore/rtm.ipynb#X22sZmlsZQ%3D%3D?line=16'>17</a>\u001b[0m controller\u001b[39m.\u001b[39mrun(df_acquire)\n",
+      "\u001b[1;31mNameError\u001b[0m: name 'stack_raw' is not defined"
+     ]
+    }
+   ],
+   "source": [
+    "\n",
+    "from controller_simulation import Controller, Analyzer\n",
+    "from dmd import DMD\n",
+    "\n",
+    "dmd = DMD(mmc, test_mode = True)\n",
+    "mda_engine_dmd = MDAEngine_DMD(dmd)\n",
+    "\n",
+    "mmc.mda.set_engine(mda_engine_dmd)\n",
+    "\n",
+    "queue = Queue()\n",
+    "\n",
+    "### RUN THIS IF YOU WANT TO TEST THE ACQUISITION WITHOUT ACTUAL HARDWARE\n",
+    "analyzer = Analyzer(pipeline)\n",
+    "controller = Controller(analyzer, mmc, queue,stack_raw=stack_raw,stack_stim=stack_stim)\n",
+    "\n",
+    "\n",
+    "# Start the acquisition\n",
+    "controller.run(df_acquire)\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "(1000000,)\n"
+     ]
+    }
+   ],
+   "source": [
+    "def normalize_mi_ma(x, mi, ma, clip=False, eps=1e-20, dtype=np.float32):\n",
+    "    if dtype is not None:\n",
+    "        x   = x.astype(dtype,copy=False)\n",
+    "        mi  = dtype(mi) if np.isscalar(mi) else mi.astype(dtype,copy=False)\n",
+    "        ma  = dtype(ma) if np.isscalar(ma) else ma.astype(dtype,copy=False)\n",
+    "        eps = dtype(eps)\n",
+    "\n",
+    "def normalize(x, pmin=3, pmax=99.8, axis=None, clip=False, eps=1e-20, dtype=np.float32):\n",
+    "    \"\"\"Percentile-based image normalization.\"\"\"\n",
+    "\n",
+    "    mi = np.percentile(x.flatten(),pmin)\n",
+    "    ma = np.percentile(x.flatten(),pmax)\n",
+    "    return normalize_mi_ma(x, mi, ma, clip=clip, eps=eps, dtype=dtype)\n",
+    "\n",
+    "normalize(np.ones((1000,1000)))\n",
+    "print(np.ones((1000,1000)).flatten().shape)"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "pymmcore",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.10"
+  },
+  "orig_nbformat": 4
+ },
+ "nbformat": 4,
+ "nbformat_minor": 2
+}

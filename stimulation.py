@@ -3,7 +3,6 @@ import numpy.typing as npt
 from skimage.draw import disk
 from skimage.measure import regionprops
 from fov import FOV
-import cv2
 
 
 #TODO return also labels_stim, list in which the stimulated cells are marked
@@ -22,6 +21,13 @@ class Stim:
         list: A list of labels that were stimulated.
         """
         raise NotImplementedError("Subclasses should implement this!")
+
+class StimWholeFOV(Stim):
+    """
+    Stimulate the whole FOV.
+    """
+    def get_stim_mask(self, label_image: np.ndarray, metadata:dict) -> npt.NDArray[np.uint8]:
+        return np.ones_like(label_image), [1,2,3,4] #some dummy values
 
 class StimNothing(Stim):
     """Use when you don't want to stimulate. Returns empty stimulation mask."""
@@ -72,6 +78,7 @@ class StimExtraParameters(Stim):
 #Helper functions
 def coordinates_to_lightmap(xy, mask):
     '''Takes a list of coordinates [(y,x),(y,x),...] and draws an ellipse on a mask for every point. '''
+    import cv2
 
     #Elipse properties
     axesLength = (3, 3) 

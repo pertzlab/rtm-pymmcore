@@ -112,12 +112,12 @@ class Controller:
                     metadata_dict['channel'] = channel
 
                     acquisition_event = useq.MDAEvent(
-                            channel = channel, # the channel presets we want to acquire
+                            index= {"t": timestep}, # the index of the event in the sequence
                             metadata = metadata_dict, # (custom) metadata that is attatched to the event/image
                             x_pos = fov.pos[0], # only one pos for all channels
                             y_pos = fov.pos[1],
-                            sequence = fov.mda_sequence,
-                            min_start_time = row['time_experiment'],
+                            # sequence = fov.mda_sequence,
+                            min_start_time = float(row['time']),
                             exposure=channels_exposure[i]
                         )
                     
@@ -131,17 +131,22 @@ class Controller:
                     if self._dmd != None:
                         stim_mask = self._dmd.affine_transform(stim_mask)
 
+                    if len(channel_stim) == 1:
+                        channel_stim = channel_stim[0]
+                        channel_stim_exposure = channel_stim_exposure[0]
+                        
                     ### expose the image
                     metadata_dict['img_type'] = ImgType.IMG_STIM #change the img_type and channels, rest stays the same
                     metadata_dict['last_channel'] = True
                     metadata_dict['channel'] = channel_stim      
 
                     stimulation_event = useq.MDAEvent(
-                        channel = channel_stim, # the channel presets we want to acquire
+                        index= {"t": timestep}, # the index of the event in the sequence
                         metadata = metadata_dict, # (custom) metadata that is attatched to the event/image
                         x_pos = fov.pos[0], # only one pos for all channels
                         y_pos = fov.pos[1],
-                        exposure = channel_stim_exposure
+                        exposure = channel_stim_exposure, 
+                        min_start_time=float(row['time'])
                     )
                     self._on_frame_ready(self._stack_stim[timestep].compute(),stimulation_event) 
 
