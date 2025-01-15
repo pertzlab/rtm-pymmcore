@@ -22,7 +22,7 @@ inherit from this class and override the segment method.
 class SegmentatorStardist(Segmentator):
 
 
-    def __init__(self, model: str='2D_versatile_fluo', norm_min: float=1, norm_max: float=99, min_size: int = 30):
+    def __init__(self, model: str='2D_versatile_fluo', norm_min: float=1, norm_max: float=99, min_size: int = 50):
         """
         Initialize the SegmentatorStardist object.
 
@@ -46,6 +46,10 @@ class SegmentatorStardist(Segmentator):
         Run the stardist model on data and do post-processing (remove small cells)
         """
         print("Segmenting image")
+        #TODO: Warning for first image from tenserflow: 
+        # functional.py (237): The structure of `inputs` doesn't match the expected structure.
+        # Expected: ['input']
+        # Received: inputs=Tensor(shape=(1, 1904, 1904, 1))
         img_normed =  csbdeep.utils.normalize(img,self.norm_min,self.norm_max)
         labels, details = self.model.predict_instances(img_normed)
         plt.imshow(labels)

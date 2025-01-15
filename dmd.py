@@ -6,7 +6,7 @@ import time
 import scipy
 #from .acquisition import acq
 from pymmcore_plus import CMMCorePlus
-
+from useq import PropertyTuple
 from useq._mda_event import SLMImage
 from useq import MDAEvent
 import random
@@ -18,7 +18,7 @@ class DMD():
         mask is in dmd space (600px*800px)
 
     '''
-    def __init__(self, mmc: CMMCorePlus, channel_group, channel_config, test_mode :bool= False):
+    def __init__(self, mmc: CMMCorePlus, calibration_profile, test_mode :bool= False):
         '''Args:
             mmc: core object from CMMCorePlus()
             test_mode: try the function without a DMD set up in uManager. Defaults to False.
@@ -27,8 +27,7 @@ class DMD():
         self.mmc = mmc
         self.test_mode = test_mode
         self.affine = None
-        self.channel_group = channel_group
-        self.channel_config = channel_config    
+        self.calibration_profile = calibration_profile
 
         if test_mode == False:
             self.name = self.mmc.getSLMDevice()
@@ -153,7 +152,6 @@ class DMD():
         events = []
         calibration_images = []
 
-
         img_dmd_full = (np.ones((self.height,self.width))*255).astype(np.uint8)
         img_dmd_full_w_borders = img_dmd_full.copy()
         img_dmd_full_w_borders[0:100] = 0
@@ -173,7 +171,8 @@ class DMD():
             rr, cc = skimage.draw.disk((p[0],p[1]), radius)
             img_p[rr, cc] = 255
             event_p = MDAEvent(slm_image=SLMImage(data=img_p, device=self.name), exposure=exposure, 
-                               channel={"config":self.channel_config, "group":self.channel_group})
+                               channel={"config":self.calibration_profile["channel_config"], "group":self.calibration_profile["channel_group"]}, 
+                               properties=[PropertyTuple(self.calibration_profile["device_name"], self.calibration_profile["property_name"], self.calibration_profile["power"])])
             events.append(event_p)
 
         self.mmc.mda.events.frameReady.disconnect()
@@ -197,6 +196,11 @@ class DMD():
                                                 residual_threshold=2, max_trials=5000)
     
         if np.sum(inliers) < 5:
+            self.mmc.mda.events.frameReady.disconnect()
+            self.mmc.mda.run([MDAEvent(slm_image=SLMImage(data=True,device=self.name),exposure=1, 
+                            properties=[PropertyTuple(self.calibration_profile["device_name"], self.calibration_profile["property_name"], 0)])])
+
+
             raise ValueError("Not enough inliers found for calibration. Try again with a different FOV.")
         self.affine = affine_model.params
 
@@ -215,7 +219,8 @@ class DMD():
                 img_p[rr,cc] = 255
                 img_warp = self.affine_transform(img_p)
                 event_p = MDAEvent(slm_image=SLMImage(data=img_warp,device=self.name),exposure=exposure, 
-                                   channel={"config":self.channel_config, "group":self.channel_group})
+                               channel={"config":self.calibration_profile["channel_config"], "group":self.calibration_profile["channel_group"]}, 
+                               properties=[PropertyTuple(self.calibration_profile["device_name"], self.calibration_profile["property_name"], self.calibration_profile["power"])])
                 events.append(event_p)
 
             self.mmc.mda.events.frameReady.disconnect()
@@ -248,8 +253,9 @@ class DMD():
 
 
             plt.show()
-
         self.mmc.mda.events.frameReady.disconnect()
+        self.mmc.mda.run([MDAEvent(slm_image=SLMImage(data=True,device=self.name),exposure=1, 
+                        properties=[PropertyTuple(self.calibration_profile["device_name"], self.calibration_profile["property_name"], 0)])])
 
 
 

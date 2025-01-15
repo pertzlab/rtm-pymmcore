@@ -1,14 +1,14 @@
-name: pymmcore_w_stardist
+name: pymmc_w_stardist
 channels:
   - defaults
   - conda-forge
 dependencies:
-  - python==3.11
+  - python==3.10
   - pandas
+  - numpy<2
   - pyarrow
   - ipykernel
   - ipywidgets
-  - numpy
   - matplotlib
   - napari
   - scikit-image
@@ -18,8 +18,8 @@ dependencies:
   - pip: 
     - pymmcore-plus
     - pymmcore-widgets
-    - opencv-python
-    - napari-micromanager
+    # - opencv-python
+    # - napari-micromanager
     - tensorflow
     - stardist
     - csbdeep

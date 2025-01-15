@@ -61,11 +61,11 @@ class ImageProcessingPipeline:
         df_old = fov.tracks #get the previous table from the FOV- 
 
         labels = self.segmentator.segment(img[self.segmentation_channel,:,:])
-        df_new,labels_rings = extract_features(labels,img)
-        df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
-
+        print(metadata)
+        print(fov)
         if metadata['stim'] == True:
             stim_mask,labels_stim = self.stimulator.get_stim_mask(labels,metadata)
+            print("stim_mask_generated")
             fov.stim_mask_queue.put(stim_mask)
             store_img(stim_mask,metadata,'stim_mask')
             #mark in the df which cells have been stimulated
@@ -74,6 +74,10 @@ class ImageProcessingPipeline:
         else:
             store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim_mask')
             store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim')
+        df_new,labels_rings = extract_features(labels,img)
+        df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
+
+
         
         #store the tracks in the FOV queue
         fov.tracks_queue.put(df_tracked)
@@ -96,7 +100,6 @@ class ImageProcessingPipeline:
             df_tracked = df_tracked.drop('channel', axis=1)
 
         df_tracked.to_parquet(fov.path + "tracks/" + metadata['fname'] + '.parquet')
-        # write_compressed_pickle(df_tracked, fov.path + "tracks/" + metadata['fname'])
 
         particles = labels_to_particles(labels,df_tracked)
         store_img(labels,metadata,'labels')
