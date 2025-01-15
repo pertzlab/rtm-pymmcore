@@ -6,6 +6,7 @@ import time
 import scipy
 #from .acquisition import acq
 from pymmcore_plus import CMMCorePlus
+
 from useq._mda_event import SLMImage
 from useq import MDAEvent
 import random
@@ -78,8 +79,62 @@ class DMD():
         self.display_mask(checker_board)
 
 
+    def select_well_distributed_points(self, valid_pixels, n_points):
+        """
+        Select well-distributed points from valid_pixels using a grid-based approach.
 
-    def calibrate(self, verbous=False, n_points = 10, radius = 4, exposure = 100, marker_style = 'x', calibration_points_DMD = None):
+        Parameters:
+        - valid_pixels (np.ndarray): Array of valid pixel coordinates with shape (N, 2).
+        - n_points (int): Number of points to select.
+        Returns:
+        - selected_points (list of tuples): List of selected (x, y) points.
+        """
+        selected_points = []
+
+        # Determine grid size based on the number of points
+        grid_size = int(np.sqrt(n_points))
+        if grid_size ** 2 < n_points:
+            grid_size += 1
+
+        # Compute the size of each grid cell
+        cell_height = self.height // grid_size
+        cell_width = self.width // grid_size
+
+        # Shuffle valid_pixels to ensure random selection within each cell
+        shuffled_pixels = valid_pixels.copy()
+        np.random.shuffle(shuffled_pixels)
+
+        for i in range(grid_size):
+            for j in range(grid_size):
+                if len(selected_points) >= n_points:
+                    break
+
+                # Define the boundaries of the current cell
+                row_start = i * cell_height
+                row_end = (i + 1) * cell_height if i < grid_size - 1 else self.height
+                col_start = j * cell_width
+                col_end = (j + 1) * cell_width if j < grid_size - 1 else self.width
+
+                # Find valid pixels within the current cell
+                cell_pixels = shuffled_pixels[
+                    (shuffled_pixels[:, 0] >= row_start) & (shuffled_pixels[:, 0] < row_end) &
+                    (shuffled_pixels[:, 1] >= col_start) & (shuffled_pixels[:, 1] < col_end)
+                ]
+
+                if len(cell_pixels) > 0:
+                    # Select a random pixel from the cell
+                    selected_point = tuple(cell_pixels[random.randint(0, len(cell_pixels) - 1)])
+                    selected_points.append(selected_point)
+
+        # If not enough points are selected, randomly select remaining points from all valid_pixels
+        if len(selected_points) < n_points:
+            remaining = n_points - len(selected_points)
+            additional_points = random.sample(list(map(tuple, valid_pixels)), remaining)
+            selected_points.extend(additional_points)
+
+        return selected_points
+
+    def calibrate(self, verbous=False, n_points = 15, radius = 4, exposure = 800, marker_style = 'x', calibration_points_DMD = None):
         
         '''Calibrate the dmd and camera coordinate systems. 
         Projects 3 points in DMD space and detects them in camera space, 
@@ -110,8 +165,7 @@ class DMD():
 
         if calibration_points_DMD is None:
             calibration_points_DMD = []
-            for _ in range(n_points):
-                calibration_points_DMD.append(random.choice(valid_pixels))
+            calibration_points_DMD = self.select_well_distributed_points(valid_pixels, n_points)
         
         for p in calibration_points_DMD: 
             img_p = np.zeros((self.height, self.width)).astype(np.uint8)
@@ -139,7 +193,12 @@ class DMD():
         src = np.array(src)
         dst = np.array(dst)
 
-        self.affine = skimage.transform.estimate_transform('affine', src, dst)
+        affine_model, inliers = skimage.measure.ransac((src, dst), skimage.transform.AffineTransform, min_samples=3, 
+                                                residual_threshold=2, max_trials=5000)
+    
+        if np.sum(inliers) < 5:
+            raise ValueError("Not enough inliers found for calibration. Try again with a different FOV.")
+        self.affine = affine_model.params
 
         if verbous:
             # test the calibration on three new points
@@ -191,65 +250,6 @@ class DMD():
             plt.show()
 
         self.mmc.mda.events.frameReady.disconnect()
-
-    # #     # if verbous, print five images:
-    # #     #[background, point1, point2, point3, calibration_test]
-    # #     if verbous:
-    # #         fig, axs = plt.subplots(figsize=(20, 5), ncols=4, dpi = 250) 
-    # #     #axs[0].yaxis.tick_left()
-    # #        # axs[0].xaxis.tick_top()  
-    # #        # axs[0].yaxis.set_ticks(np.arange(0, camera_height, 256))
-    # #        # axs[0].xaxis.set_ticks(np.arange(0, camera_width, 256))
-    # #        # axs[0].imshow(background, cmap='gray') #show the background image
-
-    # #         #show the images with single pixel on
-    # #         for (i,point_detected) in enumerate(calibration_points_camera):
-    # #             #axs[i+1].set_ylim(axs[i+1].get_ylim()[::-1])
-    # #             axs[i].xaxis.tick_top()    # and move the X-Axis     
-    # #             axs[i].xaxis.set_ticks(np.arange(0, camera_width, 256)) # set y-ticks
-    # #             axs[i].yaxis.set_ticks(np.arange(0, camera_height, 256)) # set y-ticks
-    # #             axs[i].yaxis.tick_left() 
-    # #             axs[i].imshow(stim_imgs[i],cmap='gray')
-    # #             axs[i].scatter(point_detected[0][0],point_detected[0][1],marker = marker_style, facecolors='none', edgecolors='red')
-            
-    # #         #test the calibration on three new points
-    # #         max_res = 2048
-    # #         calibration_points_camera = [[200,500],[200,1400],[1400,300],[1500,500],[1800,1000],[1750,1650]]
-    # #         #scale to binning
-    # #         for i, xy in enumerate(calibration_points_camera): 
-    # #             calibration_points_camera[i]=[int(xy[0]/max_res*camera_width),int(xy[1]/max_res*camera_height)]
-
-    # #         #create image in camera space[]
-    # #         mask = np.zeros((camera_height, camera_width)) #TODO; grab from core
-    # #         for xy in calibration_points_camera: 
-    # #             mask = cv2.circle(mask, (xy[0],xy[1]), circle_size, 1, -1)
-    # #         import skimage
-    # #         #transform to dmd space
-    # #         mask_warped = self.transform_img(mask, warp_mat)
-    # #         #display in dmd space and capture dmd in cameraspace
-    # #         mask_warped = skimage.util.img_as_ubyte(mask_warped)
-    # #         self.display_mask(mask_warped)#, dmd_exposure_time, camera_exposure_time)
-            
-    # #         self.mmc.snapImage()
-    # #         img = self.mmc.getImage()
-
-            
-    # #         #compare expected and result
-    # #         plt.axis([0, camera_height, 0, camera_width])   
-    # #         ax=plt.gca()                            # get the axis
-    # #         axs[3].set_ylim(ax.get_ylim()[::-1])        # invert the axis
-    # #         axs[3].xaxis.tick_top()                     # and move the X-Axis      
-    # #         axs[3].yaxis.set_ticks(np.arange(0, camera_height, 256)) # set y-ticks
-    # #         axs[3].yaxis.tick_left()   
-    # #         axs[3].imshow(img, cmap='gray',origin='upper')
-    # #         for xy in calibration_points_camera:
-    # #             axs[3].scatter(xy[0],xy[1],marker = marker_style, facecolors='none', edgecolors='green')
-    # #        plt.show()
-
-    # #     self.affine = warp_mat
-    # #     return warp_mat
-
-
 
 
 
