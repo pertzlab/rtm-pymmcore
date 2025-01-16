@@ -52,8 +52,6 @@ class SegmentatorStardist(Segmentator):
         # Received: inputs=Tensor(shape=(1, 1904, 1904, 1))
         img_normed =  csbdeep.utils.normalize(img,self.norm_min,self.norm_max)
         labels, details = self.model.predict_instances(img_normed)
-        plt.imshow(labels)
-        plt.show()
 
         if self.min_size>0:
             #remove cells below threshold

@@ -7803,3 +7803,297 @@
 2025-01-15 21:04:09.580 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
 2025-01-15 21:04:09.583 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
 2025-01-15 21:04:09.632 DisplayImage ()
+2025-01-15 22:20:10.347 InitializeModuleData
+2025-01-15 22:20:10.350 CreateDevice
+2025-01-15 22:20:38.321 SetPixelsTo ( 255 )
+2025-01-15 22:20:38.333 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-15 22:20:38.335 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-15 22:20:38.339 DisplayImage ()
+2025-01-15 22:50:56.365 SetPixelsTo ( 255 )
+2025-01-15 22:50:56.377 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-15 22:50:56.379 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-15 22:50:56.426 DisplayImage ()
+2025-01-15 22:51:06.346 SetPixelsTo ( 255 )
+2025-01-15 22:51:06.358 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-15 22:51:06.362 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-15 22:51:06.408 DisplayImage ()
+2025-01-15 22:51:16.286 SetPixelsTo ( 255 )
+2025-01-15 22:51:16.297 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-15 22:51:16.300 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-15 22:51:16.347 DisplayImage ()
+2025-01-15 22:56:59.366 InitializeModuleData
+2025-01-15 22:56:59.368 CreateDevice
+2025-01-15 22:57:26.023 SetPixelsTo ( 255 )
+2025-01-15 22:57:26.033 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-15 22:57:26.035 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-15 22:57:26.040 DisplayImage ()
+2025-01-16 08:33:23.534 InitializeModuleData
+2025-01-16 08:33:23.537 CreateDevice
+2025-01-16 08:33:37.841 SetPixelsTo ( 255 )
+2025-01-16 08:33:37.851 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 08:33:37.854 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 08:33:37.858 DisplayImage ()
+2025-01-16 09:36:03.818 SetPixelsTo ( 255 )
+2025-01-16 09:36:03.830 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 09:36:03.833 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 09:36:03.838 DisplayImage ()
+2025-01-16 09:36:51.391 InitializeModuleData
+2025-01-16 09:36:51.391 CreateDevice
+2025-01-16 09:36:58.103 SetPixelsTo ( 255 )
+2025-01-16 09:36:58.113 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 09:36:58.116 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 09:36:58.123 DisplayImage ()
+2025-01-16 09:52:43.864 InitializeModuleData
+2025-01-16 09:52:43.866 CreateDevice
+2025-01-16 09:52:50.658 SetPixelsTo ( 255 )
+2025-01-16 09:52:50.671 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 09:52:50.675 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 09:52:50.679 DisplayImage ()
+2025-01-16 10:20:53.186 InitializeModuleData
+2025-01-16 10:20:53.189 CreateDevice
+2025-01-16 10:21:42.054 SetPixelsTo ( 255 )
+2025-01-16 10:21:42.070 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 10:21:42.077 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 10:21:42.085 DisplayImage ()
+2025-01-16 10:29:22.417 InitializeModuleData
+2025-01-16 10:29:22.419 CreateDevice
+2025-01-16 10:29:30.904 SetPixelsTo ( 255 )
+2025-01-16 10:29:30.913 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 10:29:30.916 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 10:29:30.920 DisplayImage ()
+2025-01-16 10:40:14.157 InitializeModuleData
+2025-01-16 10:40:14.159 CreateDevice
+2025-01-16 10:44:48.056 InitializeModuleData
+2025-01-16 10:44:48.059 CreateDevice
+2025-01-16 10:44:54.752 SetPixelsTo ( 255 )
+2025-01-16 10:44:54.762 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 10:44:54.765 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 10:44:54.769 DisplayImage ()
+2025-01-16 10:46:32.562 InitializeModuleData
+2025-01-16 10:46:32.565 CreateDevice
+2025-01-16 10:46:43.313 SetPixelsTo ( 255 )
+2025-01-16 10:46:43.324 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 10:46:43.327 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 10:46:43.331 DisplayImage ()
+2025-01-16 10:50:11.838 InitializeModuleData
+2025-01-16 10:50:11.840 CreateDevice
+2025-01-16 10:51:17.006 SetPixelsTo ( 255 )
+2025-01-16 10:51:17.020 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 10:51:17.025 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 10:51:17.031 DisplayImage ()
+2025-01-16 10:54:27.062 InitializeModuleData
+2025-01-16 10:54:27.065 CreateDevice
+2025-01-16 10:54:35.167 SetPixelsTo ( 255 )
+2025-01-16 10:54:35.177 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 10:54:35.180 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 10:54:35.184 DisplayImage ()
+2025-01-16 11:01:29.327 SetPixelsTo ( 255 )
+2025-01-16 11:01:29.335 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 11:01:29.338 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 11:01:29.342 DisplayImage ()
+2025-01-16 11:56:39.318 InitializeModuleData
+2025-01-16 11:56:39.328 CreateDevice
+2025-01-16 12:06:15.890 InitializeModuleData
+2025-01-16 12:06:15.893 CreateDevice
+2025-01-16 12:06:15.909 Begin DeleteDevice
+2025-01-16 12:06:15.911 End DeleteDevice
+2025-01-16 12:06:36.753 InitializeModuleData
+2025-01-16 12:06:36.763 CreateDevice
+2025-01-16 12:07:40.149 InitializeModuleData
+2025-01-16 12:07:40.149 CreateDevice
+2025-01-16 12:19:04.364 InitializeModuleData
+2025-01-16 12:19:04.364 CreateDevice
+2025-01-16 17:37:17.609 InitializeModuleData
+2025-01-16 17:37:17.612 CreateDevice
+2025-01-16 17:37:28.952 SetPixelsTo ( 255 )
+2025-01-16 17:37:28.963 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 17:37:28.967 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 17:37:28.971 DisplayImage ()
+2025-01-16 18:04:54.688 SetPixelsTo ( 255 )
+2025-01-16 18:04:54.702 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 18:04:54.706 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 18:04:54.752 DisplayImage ()
+2025-01-16 18:07:55.689 SetPixelsTo ( 255 )
+2025-01-16 18:07:55.700 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 18:07:55.703 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 18:07:55.748 DisplayImage ()
+2025-01-16 18:18:05.136 SetPixelsTo ( 255 )
+2025-01-16 18:18:05.147 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 18:18:05.150 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 18:18:05.196 DisplayImage ()
+2025-01-16 18:28:24.224 InitializeModuleData
+2025-01-16 18:28:24.226 CreateDevice
+2025-01-16 18:29:04.536 SetPixelsTo ( 255 )
+2025-01-16 18:29:04.548 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 18:29:04.552 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 18:29:04.558 DisplayImage ()
+2025-01-16 18:42:13.639 SetPixelsTo ( 255 )
+2025-01-16 18:42:13.651 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 18:42:13.653 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 18:42:13.658 DisplayImage ()
+2025-01-16 18:42:30.479 SetPixelsTo ( 255 )
+2025-01-16 18:42:30.490 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 18:42:30.493 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 18:42:30.499 DisplayImage ()
+2025-01-16 18:54:33.285 SetPixelsTo ( 255 )
+2025-01-16 18:54:33.303 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 18:54:33.306 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 18:54:33.368 DisplayImage ()
+2025-01-16 19:00:21.916 SetPixelsTo ( 255 )
+2025-01-16 19:00:21.926 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:00:21.929 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:00:22.095 DisplayImage ()
+2025-01-16 19:02:48.517 SetPixelsTo ( 255 )
+2025-01-16 19:02:48.533 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:02:48.534 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:02:48.643 DisplayImage ()
+2025-01-16 19:08:57.997 SetPixelsTo ( 255 )
+2025-01-16 19:08:58.008 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:08:58.013 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:08:58.163 DisplayImage ()
+2025-01-16 19:09:12.787 SetPixelsTo ( 255 )
+2025-01-16 19:09:12.796 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:09:12.799 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:09:12.855 DisplayImage ()
+2025-01-16 19:14:57.409 SetPixelsTo ( 255 )
+2025-01-16 19:14:57.415 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:14:57.415 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:14:57.493 DisplayImage ()
+2025-01-16 19:19:18.943 SetPixelsTo ( 255 )
+2025-01-16 19:19:18.952 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:19:18.954 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:19:19.073 DisplayImage ()
+2025-01-16 19:21:59.794 SetPixelsTo ( 255 )
+2025-01-16 19:21:59.799 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:21:59.807 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:21:59.956 DisplayImage ()
+2025-01-16 19:25:46.734 SetPixelsTo ( 255 )
+2025-01-16 19:25:46.745 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:25:46.748 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:25:46.895 DisplayImage ()
+2025-01-16 19:27:56.496 SetPixelsTo ( 255 )
+2025-01-16 19:27:56.515 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:27:56.518 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:27:56.674 DisplayImage ()
+2025-01-16 19:31:04.421 SetPixelsTo ( 255 )
+2025-01-16 19:31:04.432 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:31:04.435 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:31:04.592 DisplayImage ()
+2025-01-16 19:50:05.231 SetPixelsTo ( 255 )
+2025-01-16 19:50:05.241 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:50:05.243 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:50:05.403 DisplayImage ()
+2025-01-16 19:53:15.539 SetPixelsTo ( 255 )
+2025-01-16 19:53:15.559 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:53:15.562 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:53:15.705 DisplayImage ()
+2025-01-16 19:56:30.568 InitializeModuleData
+2025-01-16 19:56:30.568 CreateDevice
+2025-01-16 19:56:44.935 SetPixelsTo ( 255 )
+2025-01-16 19:56:44.947 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:56:44.951 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:56:44.955 DisplayImage ()
+2025-01-16 19:57:13.948 SetPixelsTo ( 255 )
+2025-01-16 19:57:13.957 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:57:13.960 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:57:14.003 DisplayImage ()
+2025-01-16 19:59:56.283 SetPixelsTo ( 255 )
+2025-01-16 19:59:56.293 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 19:59:56.296 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 19:59:56.339 DisplayImage ()
+2025-01-16 20:01:46.583 SetPixelsTo ( 255 )
+2025-01-16 20:01:46.592 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 20:01:46.595 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 20:01:46.638 DisplayImage ()
+2025-01-16 20:05:43.045 SetPixelsTo ( 255 )
+2025-01-16 20:05:43.058 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 20:05:43.061 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 20:05:43.106 DisplayImage ()
+2025-01-16 20:33:18.304 SetPixelsTo ( 255 )
+2025-01-16 20:33:18.315 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 20:33:18.318 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 20:33:18.323 DisplayImage ()
+2025-01-16 20:37:05.267 InitializeModuleData
+2025-01-16 20:37:05.267 CreateDevice
+2025-01-16 20:37:19.899 SetPixelsTo ( 255 )
+2025-01-16 20:37:19.911 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 20:37:19.915 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 20:37:19.921 DisplayImage ()
+2025-01-16 20:37:58.031 SetPixelsTo ( 255 )
+2025-01-16 20:37:58.040 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 20:37:58.043 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 20:37:58.086 DisplayImage ()
+2025-01-16 20:51:42.540 InitializeModuleData
+2025-01-16 20:51:42.547 CreateDevice
+2025-01-16 20:52:09.629 SetPixelsTo ( 255 )
+2025-01-16 20:52:09.642 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 20:52:09.646 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 20:52:09.653 DisplayImage ()
+2025-01-16 20:52:37.967 SetPixelsTo ( 255 )
+2025-01-16 20:52:37.979 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 20:52:37.982 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 20:52:38.032 DisplayImage ()
+2025-01-16 21:14:11.933 SetPixelsTo ( 255 )
+2025-01-16 21:14:11.942 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 21:14:11.946 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 21:14:11.991 DisplayImage ()
+2025-01-16 21:14:59.700 InitializeModuleData
+2025-01-16 21:14:59.700 CreateDevice
+2025-01-16 21:15:06.714 SetPixelsTo ( 255 )
+2025-01-16 21:15:06.724 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 21:15:06.727 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 21:15:06.730 DisplayImage ()
+2025-01-16 21:15:34.895 SetPixelsTo ( 255 )
+2025-01-16 21:15:34.905 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 21:15:34.908 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 21:15:34.954 DisplayImage ()
+2025-01-16 21:24:01.417 SetPixelsTo ( 255 )
+2025-01-16 21:24:01.427 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 21:24:01.430 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 21:24:01.476 DisplayImage ()
+2025-01-16 21:25:55.519 SetPixelsTo ( 255 )
+2025-01-16 21:25:55.532 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 21:25:55.535 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 21:25:55.581 DisplayImage ()
+2025-01-16 21:27:55.410 SetPixelsTo ( 255 )
+2025-01-16 21:27:55.422 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 21:27:55.425 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 21:27:55.472 DisplayImage ()
+2025-01-16 22:22:19.130 InitializeModuleData
+2025-01-16 22:22:19.132 CreateDevice
+2025-01-16 22:22:35.250 SetPixelsTo ( 255 )
+2025-01-16 22:22:35.262 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 22:22:35.266 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 22:22:35.274 DisplayImage ()
+2025-01-16 22:29:41.701 SetPixelsTo ( 255 )
+2025-01-16 22:29:41.713 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 22:29:41.716 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 22:29:41.721 DisplayImage ()
+2025-01-16 22:30:04.935 InitializeModuleData
+2025-01-16 22:30:04.937 CreateDevice
+2025-01-16 22:30:39.905 SetPixelsTo ( 255 )
+2025-01-16 22:30:39.918 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 22:30:39.922 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 22:30:39.928 DisplayImage ()
+2025-01-16 22:31:12.480 SetPixelsTo ( 255 )
+2025-01-16 22:31:12.492 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 22:31:12.495 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 22:31:12.500 DisplayImage ()
+2025-01-16 22:31:56.784 SetPixelsTo ( 255 )
+2025-01-16 22:31:56.794 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 22:31:56.796 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 22:31:56.839 DisplayImage ()
+2025-01-16 22:37:16.248 SetPixelsTo ( 255 )
+2025-01-16 22:37:16.258 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 22:37:16.260 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 22:37:16.305 DisplayImage ()
+2025-01-16 22:48:57.465 InitializeModuleData
+2025-01-16 22:48:57.468 CreateDevice
+2025-01-16 22:49:28.311 SetPixelsTo ( 255 )
+2025-01-16 22:49:28.324 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 22:49:28.327 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 22:49:28.333 DisplayImage ()
+2025-01-16 22:51:03.377 SetPixelsTo ( 255 )
+2025-01-16 22:51:03.387 MightexPolygon::SetPatternSettings: Input parameters: TrigType = 0, PtnNumber = 1, ExposureTime = 0.000000
+2025-01-16 22:51:03.389 MightexPolygon::SetPatternSettings: PatternTrigType = 0, TrigEdge = 1, PtnNumber = 1, ExposureTime = 0
+2025-01-16 22:51:03.434 DisplayImage ()

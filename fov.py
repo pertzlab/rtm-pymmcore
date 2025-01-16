@@ -12,8 +12,8 @@ class FOV:
         self.light_mask = None
         self.path = path # folder with experiment
         self.stim_params = {} #dict with the parameters the stimulator will unpack in the segment method
-        self.stim_mask_queue = queue.Queue()
-        self.tracks_queue = queue.Queue()
+        self.stim_mask_queue = queue.SimpleQueue()
+        self.tracks_queue = queue.SimpleQueue()
         self.start_time = None
         self.mda_sequence = None #mda sequence object used for timing
         self.tracks = None #tracks dataframe

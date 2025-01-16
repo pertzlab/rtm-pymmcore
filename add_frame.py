@@ -61,35 +61,33 @@ class ImageProcessingPipeline:
         df_old = fov.tracks #get the previous table from the FOV- 
 
         labels = self.segmentator.segment(img[self.segmentation_channel,:,:])
-        print(metadata)
-        print(fov)
         if metadata['stim'] == True:
             stim_mask,labels_stim = self.stimulator.get_stim_mask(labels,metadata)
             print("stim_mask_generated")
-            fov.stim_mask_queue.put(stim_mask)
-            store_img(stim_mask,metadata,'stim_mask')
+            fov.stim_mask_queue.put_nowait(stim_mask)
+            # TODO: Reenable, but make exception for stimwholeframe
             #mark in the df which cells have been stimulated
-            stim_index = np.where((df_tracked['frame']==metadata['timestep']) & (df_tracked['label'].isin(labels_stim)))[0]
-            df_tracked.loc[stim_index,'stim']=True
-        else:
-            store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim_mask')
-            store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim')
+            # stim_index = np.where((df_tracked['frame']==metadata['timestep']) & (df_tracked['label'].isin(labels_stim)))[0]
+            # df_tracked.loc[stim_index,'stim']=True
+        
         df_new,labels_rings = extract_features(labels,img)
         df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
-
-
-        
         #store the tracks in the FOV queue
         fov.tracks_queue.put(df_tracked)
 
-        #store the intermediate DF containing the tracks
+        # after adding to queue, we have all the time to store the images and the tracks
+        if metadata["stim"]: 
+            store_img(stim_mask,metadata,'stim_mask')
+        else: 
+            store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim_mask')
+            store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim')
 
+
+        #store the intermediate DF containing the tracks
         #add all the metadata to the DF
-        
         if not df_tracked.empty:
             for key, value in metadata.items():
                 if type(value) == list:
-                # df['new_column'] = df.apply(lambda row: value, axis=1)
                     df_tracked[key] = df_tracked.apply(lambda row: value, axis=1)
                 else: 
                     df_tracked.loc[:,key] = value
@@ -100,16 +98,15 @@ class ImageProcessingPipeline:
             df_tracked = df_tracked.drop('channel', axis=1)
 
         df_tracked.to_parquet(fov.path + "tracks/" + metadata['fname'] + '.parquet')
-
         particles = labels_to_particles(labels,df_tracked)
         store_img(labels,metadata,'labels')
         store_img(labels_rings,metadata,'labels_rings')
         store_img(particles,metadata,'particles')
 
-        #cleanup: delete the previous pickled tracks file
-        # if metadata['timestep'] > 0:
-        #     fname_previous = f'{str(fov.index).zfill(3)}_{str(metadata["timestep"]-1).zfill(5)}.pkl'
-        #     os.remove(fov.path + "tracks/" + metadata['fname'] + '.zip')
+        # cleanup: delete the previous pickled tracks file
+        if metadata['timestep'] > 0:
+            fname_previous = f'{str(fov.index).zfill(3)}_{str(metadata["timestep"]-1).zfill(5)}.parquet'
+            os.remove(fov.path + "tracks/" + fname_previous)
 
 
         #TODO return something useful

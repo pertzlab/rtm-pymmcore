@@ -13,6 +13,8 @@ class TrackerNoTracking(Tracker):
         df_new['frame']=metadata['timestep']
         df_new['stim']=False
         df_new['time']=metadata['time'] #relative time scince beginning of experiment
+        if df_old is None:
+            return df_new
         df_tracked = pd.concat([df_old,df_new])
         df_tracked = df_tracked.reset_index(drop=True)
         return df_tracked
