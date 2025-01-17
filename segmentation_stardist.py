@@ -45,7 +45,6 @@ class SegmentatorStardist(Segmentator):
         """
         Run the stardist model on data and do post-processing (remove small cells)
         """
-        print("Segmenting image")
         #TODO: Warning for first image from tenserflow: 
         # functional.py (237): The structure of `inputs` doesn't match the expected structure.
         # Expected: ['input']

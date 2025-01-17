@@ -42,14 +42,11 @@ class Analyzer:
             if self.pipeline is not None:
                 thread = threading.Thread(target=self.pipeline.run, args=(img, event))
                 thread.start()
-            print("Store raw image")
-            # self.pipeline.run(img,event)
             store_img(img,metadata,'raw')
 
         if img_type == ImgType.IMG_STIM:
             #stim image, store
             store_img(img,metadata,'stim')
-            print("Store stim image")
         #TODO remove print statement and return something useful
         return {"result": "STOP"}
 
@@ -72,7 +69,6 @@ class Controller:
     def _on_frame_ready(self, img: np.ndarray, event: MDAEvent) -> None:
         # Analyze the image+        
         self._frame_buffer.append(img)
-        print("New frame ready")
         # check if it's the last acquisition for this MDAsequence
         if event.metadata['last_channel']:
             frame_complete = np.stack(self._frame_buffer, axis=-1)
@@ -95,17 +91,20 @@ class Controller:
         queue_sequence = iter(self._queue.get, self.STOP_EVENT)
         self._mmc.run_mda(queue_sequence)
         try: 
-            for timestep in df_acquire['timestep'].unique():
+            for exp_time in df_acquire['time'].unique():
                 # extract the lines with the current timestep from the DF
-                current_timestep_df = df_acquire[df_acquire['timestep'] == timestep]
-                for index, row in current_timestep_df.iterrows():
+                current_time_df = df_acquire[df_acquire['time'] == exp_time]
+                for index, row in current_time_df.iterrows():
                     fov : FOV = row['fov_object']
                     timestep = row['timestep']
-                    stim = row['stim']
+                    treatment = row['treatment']
+                    stim = timestep in treatment["stim_timestep"]
+                    stim_exposure = treatment["stim_exposure"]
+                    stim_profile = treatment["stim_profile"]
+
                     channels = row['channels']
                     channels_exposure = row['channels_exposure']
-                    stim_profile = row['stim_profile']
-                    stim_exposure = row['stim_exposure']
+
 
                     if timestep > 0:
                         fov.tracks = fov.tracks_queue.get(block=True) #wait max 10s for tracks
@@ -121,7 +120,7 @@ class Controller:
                         metadata_dict['channel'] = channel
 
                         acquisition_event = useq.MDAEvent(
-                                index= {"t": timestep, "c": i}, # the index of the event in the sequence
+                                index= {"t": timestep, "c": i, "p": fov.index}, # the index of the event in the sequence
                                 channel = {"config":channel, "group":self._current_group}, # the channel presets we want to acquire
                                 metadata = metadata_dict, # (custom) metadata that is attatched to the event/image
                                 x_pos = fov.pos[0], # only one pos for all channels
@@ -129,7 +128,6 @@ class Controller:
                                 min_start_time = float(row['time']),
                                 exposure=channels_exposure[i]
                             )
-                        print(acquisition_event)
                         #add the event to the acquisition queue
                         self._queue.put(acquisition_event)
                     if stim:
@@ -147,7 +145,7 @@ class Controller:
                                 stim_mask = self._dmd.affine_transform(stim_mask)
 
                             stimulation_event = useq.MDAEvent(
-                                index= {"t": timestep}, # the index of the event in the sequence
+                                index= {"t": timestep, "p": fov.index}, # the index of the event in the sequence
                                 channel = {"config":stim_profile["channel"], "group":self._current_group}, # the channel presets we want to acquire
                                 metadata = metadata_dict, # (custom) metadata that is attatched to the event/image
                                 x_pos = row['fov_object'].pos[0], # only one pos for all channels
@@ -159,7 +157,7 @@ class Controller:
                             )
                         else: 
                             stimulation_event = useq.MDAEvent(
-                                index= {"t": timestep}, # the index of the event in the sequence
+                                index= {"t": timestep, "p": fov.index}, # the index of the event in the sequence
                                 channel = {"config":stim_profile["channel"], "group":self._current_group}, # the channel presets we want to acquire
                                 metadata = metadata_dict, # (custom) metadata that is attatched to the event/image
                                 x_pos = row['fov_object'].pos[0], # only one pos for all channels
@@ -172,8 +170,8 @@ class Controller:
                         self._queue.put(stimulation_event)
 
                           
-                # Reached end of acquisition DF
-
         finally: 
                 # # Put the stop event in the queue
             self._queue.put(self.STOP_EVENT)
+            while self._queue.qsize() > 0:
+                time.sleep(1)

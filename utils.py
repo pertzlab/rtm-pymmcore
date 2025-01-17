@@ -31,7 +31,7 @@ def create_folders(path,folders):
     """
     
     for folder in folders:
-        dir_name = path + folder
+        dir_name = os.path.join(path, folder)
         try:
             os.makedirs(dir_name)
             print("Directory" , dir_name ,  "created ") 

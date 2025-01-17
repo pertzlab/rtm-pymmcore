@@ -111,7 +111,6 @@ class Controller:
                             metadata = metadata_dict, # (custom) metadata that is attatched to the event/image
                             x_pos = fov.pos[0], # only one pos for all channels
                             y_pos = fov.pos[1],
-                            # sequence = fov.mda_sequence,
                             min_start_time = float(row['time']),
                             exposure=channels_exposure[i]
                         )

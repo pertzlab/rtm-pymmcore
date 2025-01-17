@@ -63,7 +63,6 @@ class ImageProcessingPipeline:
         labels = self.segmentator.segment(img[self.segmentation_channel,:,:])
         if metadata['stim'] == True:
             stim_mask,labels_stim = self.stimulator.get_stim_mask(labels,metadata)
-            print("stim_mask_generated")
             fov.stim_mask_queue.put_nowait(stim_mask)
             # TODO: Reenable, but make exception for stimwholeframe
             #mark in the df which cells have been stimulated
@@ -87,17 +86,37 @@ class ImageProcessingPipeline:
         #add all the metadata to the DF
         if not df_tracked.empty:
             for key, value in metadata.items():
-                if type(value) == list:
+                if isinstance(value, list):
                     df_tracked[key] = df_tracked.apply(lambda row: value, axis=1)
-                else: 
-                    df_tracked.loc[:,key] = value
+                elif isinstance(value, dict):
+                    for subkey, subvalue in value.items():
+                        df_tracked[subkey] = [subvalue] * len(df_tracked)
+                else:
+                    df_tracked[key] = value
 
             #delete unnecessary collumns from the df
             df_tracked = df_tracked.drop('fov_object', axis=1)
             df_tracked = df_tracked.drop('img_type', axis=1)
             df_tracked = df_tracked.drop('channel', axis=1)
+            df_tracked = df_tracked.drop('last_channel', axis=1)
 
-        df_tracked.to_parquet(fov.path + "tracks/" + metadata['fname'] + '.parquet')
+        df_datatypes = {
+            "frame": np.uint32,
+            "particle": np.uint32,
+            "label": np.uint32,
+            "time": np.float32,
+            "timestep": np.uint32,
+            "fov": np.uint16,
+            "stim_exposure": np.float16,
+        }
+        try: 
+            df_tracked = df_tracked.astype(df_datatypes)
+        except:
+            print("Error in converting the data types of the dataframe")
+            pass
+
+
+        df_tracked.to_parquet(os.path.join(fov.path, "tracks", f"{metadata['fname']}.parquet"))
         particles = labels_to_particles(labels,df_tracked)
         store_img(labels,metadata,'labels')
         store_img(labels_rings,metadata,'labels_rings')
@@ -106,7 +125,7 @@ class ImageProcessingPipeline:
         # cleanup: delete the previous pickled tracks file
         if metadata['timestep'] > 0:
             fname_previous = f'{str(fov.index).zfill(3)}_{str(metadata["timestep"]-1).zfill(5)}.parquet'
-            os.remove(fov.path + "tracks/" + fname_previous)
+            os.remove(os.path.join(fov.path, "tracks", fname_previous))
 
 
         #TODO return something useful
