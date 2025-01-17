@@ -16,10 +16,8 @@ dependencies:
   - tifffile
   - pip
   - pip: 
-    - pymmcore-plus
+    - git+https://github.com/alandolt/pymmcore-plus.git@feat--include-useq-properties-in-mda-engine
     - pymmcore-widgets
-    # - opencv-python
-    # - napari-micromanager
     - tensorflow
     - stardist
     - csbdeep
