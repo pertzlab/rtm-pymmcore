@@ -107,7 +107,7 @@ class ImageProcessingPipeline:
             "time": np.float32,
             "timestep": np.uint32,
             "fov": np.uint16,
-            "stim_exposure": np.float16,
+            "stim_exposure": np.float32,
         }
         try: 
             df_tracked = df_tracked.astype(df_datatypes)
