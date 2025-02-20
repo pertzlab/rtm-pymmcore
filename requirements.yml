@@ -16,7 +16,7 @@ dependencies:
   - tifffile
   - pip
   - pip: 
-    - git+https://github.com/alandolt/pymmcore-plus.git@feat--include-useq-properties-in-mda-engine
+    - pymmcore-plus
     - pymmcore-widgets
     - tensorflow
     - stardist

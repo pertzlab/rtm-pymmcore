@@ -1,0 +1,17 @@
+# made for python == 3.10
+pandas
+numpy<2
+pyarrow
+ipykernel
+ipywidgets
+matplotlib
+napari[all]
+scikit-image
+tifffile
+pymmcore-plus
+pymmcore-widgets
+tensorflow
+stardist
+csbdeep
+trackpy
+napari-micromanager
