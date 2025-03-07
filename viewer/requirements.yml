@@ -1,0 +1,15 @@
+name: napari
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - napari
+  - pandas
+  - pyarrow
+  - pyqt
+  - magicgui
+  - tifffile
+  - dask
+  - scikit-image
+  - numpy
+  - ipykernel

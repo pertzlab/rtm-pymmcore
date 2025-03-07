@@ -1,0 +1,9 @@
+napari
+pandas
+pyarrow
+magicgui
+tifffile
+dask
+scikit-image
+numpy
+ipykernel
