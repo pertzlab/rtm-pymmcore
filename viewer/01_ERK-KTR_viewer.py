@@ -8,6 +8,7 @@ from tifffile import imread as tiff_imread
 import dask.array as da
 from skimage.io.collection import alphanumeric_key
 import dask.array as da
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dask import delayed
 import numpy as np
 from pathlib import Path
@@ -21,8 +22,9 @@ PARTICLES_FOLDER = "particles"
 LABELS_RINGS = "labels_rings"
 TRACKS_FOLDER = "tracks"
 
-
-# project_path = "\\\\izbkingston.izb.unibe.ch\\imaging.data\\mic01-imaging\\Alex\\pymmcore\\TestJungfrau"
+DEFAULT_FOLDER = (
+    "\\\\izbkingston.izb.unibe.ch\\imaging.data\\mic01-imaging\\Alex\\pymmcore"
+)
 
 
 class Layer_Info:
@@ -150,12 +152,14 @@ def update_or_add_layer(layer_name, data, colormap, blending, layer_type="image"
         "allow_multiple": True,
         "label": "Layers",
     },
+    lazy={"widget_type": "CheckBox", "label": "Lazy Loading"},
 )
 def selection_widget(
     cell_line: str,
     exposure_time: int,
     fov: str,
     select_data: list[str] = [folder.folder_name for folder in FOLDERS_TO_LOAD],
+    lazy: bool = True,
     next_fov: bool = False,
     previous_fov: bool = False,
 ):
@@ -202,7 +206,7 @@ def selection_widget(
         if folder_info is None:
             print(f"Folder {folder} not found")
             continue
-        data = tiff_to_da(folder_info.folder_name, filenames=filenames, lazy=True)
+        data = tiff_to_da(folder_info.folder_name, filenames=filenames, lazy=lazy)
         if data is None:
             print(f"No data found for {folder} in {fov}")
             continue
@@ -229,7 +233,6 @@ def selection_widget(
             )
             layers_added_in_current_call.append(folder)
 
-    viewer.dims.set_current_step(0, 0)
     # remove layers that were added in the previous call but not in the current call
     for layer in currently_added_layers:
         if layer not in layers_added_in_current_call:
@@ -327,7 +330,9 @@ def update_fov(event=None):
     directory={"mode": "d", "label": "Experiment: "},
     auto_call=True,
 )
-def directorypicker(directory=Path(".")):
+def directorypicker(
+    directory=Path(DEFAULT_FOLDER),
+):
     """Take a directory name and do something with it."""
     print("The directory name is:", directory)
     global project_path

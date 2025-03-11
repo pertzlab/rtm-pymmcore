@@ -7,3 +7,5 @@ dask
 scikit-image
 numpy
 ipykernel
+opencv-python
+napari-timestamper
