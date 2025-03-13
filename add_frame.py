@@ -1,35 +1,49 @@
-# combines a segmentor, stimulator and tracker into a image processing pipeline. 
+# combines a segmentor, stimulator and tracker into a image processing pipeline.
 
 from useq import MDAEvent
 import numpy as np
 import skimage.io
 from stimulation import Stim
-from segmentation import Segmentator,extract_features
+from segmentation import Segmentator, extract_features
 from tracking import Tracker
-from utils import MetadataDict,ImgType
+from utils import MetadataDict, ImgType
 import pandas as pd
-#import time
+
+# import time
 import os
 from fov import FOV
 from utils import labels_to_particles
 from utils import write_compressed_pickle
 import tifffile
 
-def store_img(img:np.array, metadata:MetadataDict, folder:str):
+
+def store_img(img: np.array, metadata: MetadataDict, folder: str):
     """Take the image and store it accordingly. Check the metadata for FOV index and timestamp."""
-    fov : FOV = metadata['fov_object']
-    img_type = metadata['img_type']
-    fname = metadata['fname']
-    tifffile.imwrite(os.path.join(fov.path, folder, fname + '.tiff'), img, compression='zlib', compressionargs={'level': 5})
+    fov: FOV = metadata["fov_object"]
+    img_type = metadata["img_type"]
+    fname = metadata["fname"]
+    tifffile.imwrite(
+        os.path.join(fov.path, folder, fname + ".tiff"),
+        img,
+        compression="zlib",
+        compressionargs={"level": 5},
+    )
+
 
 # Create a new pipeline class that contains a segmentator and a stimulator
 class ImageProcessingPipeline:
-    def __init__(self, segmentator:Segmentator, stimulator:Stim, tracker:Tracker, segmentation_channel:int=0):
-        self.segmentator = segmentator 
+    def __init__(
+        self,
+        segmentator: Segmentator,
+        stimulator: Stim,
+        tracker: Tracker,
+        segmentation_channel: int = 0,
+    ):
+        self.segmentator = segmentator
         self.stimulator = stimulator
         self.tracker = tracker
         self.segmentation_channel = segmentation_channel
-    
+
     def run(self, img: np.ndarray, event: MDAEvent) -> dict:
         """
         Runs the image processing pipeline on the input image.
@@ -52,53 +66,54 @@ class ImageProcessingPipeline:
         8. Store the intermediate tracks dataframe.
         9. Store the segmented images and labels.
         """
-        
+
         # Rest of the code...
 
-        metadata : MetadataDict = event.metadata
-        
-        fov : FOV = metadata['fov_object']
-        df_old = fov.tracks #get the previous table from the FOV- 
+        metadata: MetadataDict = event.metadata
 
-        labels = self.segmentator.segment(img[self.segmentation_channel,:,:])
-        if metadata['stim'] == True:
-            stim_mask,labels_stim = self.stimulator.get_stim_mask(labels,metadata)
+        fov: FOV = metadata["fov_object"]
+        df_old = fov.tracks  # get the previous table from the FOV-
+
+        labels = self.segmentator.segment(img[self.segmentation_channel, :, :])
+        if metadata["stim"] == True:
+            stim_mask, labels_stim = self.stimulator.get_stim_mask(labels, metadata)
             fov.stim_mask_queue.put_nowait(stim_mask)
             # TODO: Reenable, but make exception for stimwholeframe
-            #mark in the df which cells have been stimulated
+            # mark in the df which cells have been stimulated
             # stim_index = np.where((df_tracked['frame']==metadata['timestep']) & (df_tracked['label'].isin(labels_stim)))[0]
             # df_tracked.loc[stim_index,'stim']=True
-        
-        df_new,labels_rings = extract_features(labels,img)
+
+        df_new, labels_rings = extract_features(labels, img)
+
+        # add all the metadata to the DF
+        if not df_new.empty:
+            for key, value in metadata.items():
+                if isinstance(value, list):
+                    df_new[key] = df_new.apply(lambda row: value, axis=1)
+                elif isinstance(value, dict):
+                    for subkey, subvalue in value.items():
+                        df_new[subkey] = [subvalue] * len(df_new)
+                else:
+                    df_new[key] = value
+
         df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
-        #store the tracks in the FOV queue
+        # store the tracks in the FOV queue
         fov.tracks_queue.put(df_tracked)
 
         # after adding to queue, we have all the time to store the images and the tracks
-        if metadata["stim"]: 
-            store_img(stim_mask,metadata,'stim_mask')
-        else: 
-            store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim_mask')
-            store_img(np.zeros_like(labels).astype(np.uint8),metadata,'stim')
+        if metadata["stim"]:
+            store_img(stim_mask, metadata, "stim_mask")
+        else:
+            store_img(np.zeros_like(labels).astype(np.uint8), metadata, "stim_mask")
+            store_img(np.zeros_like(labels).astype(np.uint8), metadata, "stim")
 
+            # store the intermediate DF containing the tracks
 
-        #store the intermediate DF containing the tracks
-        #add all the metadata to the DF
-        if not df_tracked.empty:
-            for key, value in metadata.items():
-                if isinstance(value, list):
-                    df_tracked[key] = df_tracked.apply(lambda row: value, axis=1)
-                elif isinstance(value, dict):
-                    for subkey, subvalue in value.items():
-                        df_tracked[subkey] = [subvalue] * len(df_tracked)
-                else:
-                    df_tracked[key] = value
-
-            #delete unnecessary collumns from the df
-            df_tracked = df_tracked.drop('fov_object', axis=1)
-            df_tracked = df_tracked.drop('img_type', axis=1)
-            df_tracked = df_tracked.drop('channel', axis=1)
-            df_tracked = df_tracked.drop('last_channel', axis=1)
+            # delete unnecessary collumns from the df
+            df_tracked = df_tracked.drop("fov_object", axis=1)
+            df_tracked = df_tracked.drop("img_type", axis=1)
+            df_tracked = df_tracked.drop("channel", axis=1)
+            df_tracked = df_tracked.drop("last_channel", axis=1)
 
         df_datatypes = {
             "frame": np.uint32,
@@ -109,28 +124,26 @@ class ImageProcessingPipeline:
             "fov": np.uint16,
             "stim_exposure": np.float32,
         }
-        try: 
+        try:
             df_tracked = df_tracked.astype(df_datatypes)
         except:
             print("Error in converting the data types of the dataframe")
             pass
 
-
-        df_tracked.to_parquet(os.path.join(fov.path, "tracks", f"{metadata['fname']}.parquet"))
-        particles = labels_to_particles(labels,df_tracked)
-        store_img(labels,metadata,'labels')
-        store_img(labels_rings,metadata,'labels_rings')
-        store_img(particles,metadata,'particles')
+        df_tracked.to_parquet(
+            os.path.join(fov.path, "tracks", f"{metadata['fname']}.parquet")
+        )
+        particles = labels_to_particles(labels, df_tracked)
+        store_img(labels, metadata, "labels")
+        store_img(labels_rings, metadata, "labels_rings")
+        store_img(particles, metadata, "particles")
 
         # cleanup: delete the previous pickled tracks file
-        if metadata['timestep'] > 0:
+        if metadata["timestep"] > 0:
             fname_previous = f'{str(fov.index).zfill(3)}_{str(metadata["timestep"]-1).zfill(5)}.parquet'
             os.remove(os.path.join(fov.path, "tracks", fname_previous))
 
-
-        #TODO return something useful
-        #TODO send tracks and stim_mask to the FOV queues
-
+        # TODO return something useful
+        # TODO send tracks and stim_mask to the FOV queues
 
         return {"result": "STOP"}
-    
