@@ -22,7 +22,7 @@ inherit from this class and override the segment method.
 class SegmentatorStardist(Segmentator):
 
 
-    def __init__(self, model: str='2D_versatile_fluo', norm_min: float=1, norm_max: float=99, min_size: int = 50):
+    def __init__(self, model: str='2D_versatile_fluo', norm_min: float=1, norm_max: float=99, min_size: int = 50, prob_thresh= None):
         """
         Initialize the SegmentatorStardist object.
 
@@ -39,6 +39,7 @@ class SegmentatorStardist(Segmentator):
         self.norm_min = norm_min
         self.norm_max = norm_max
         self.min_size = min_size #minimal object size
+        self.prob_thresh = prob_thresh
 
 
     def segment(self, img: np.ndarray) -> np.ndarray:
@@ -50,7 +51,10 @@ class SegmentatorStardist(Segmentator):
         # Expected: ['input']
         # Received: inputs=Tensor(shape=(1, 1904, 1904, 1))
         img_normed =  csbdeep.utils.normalize(img,self.norm_min,self.norm_max)
-        labels, details = self.model.predict_instances(img_normed)
+        if self.prob_thresh is None: 
+            labels, details = self.model.predict_instances(img_normed)
+        else: 
+            labels, details = self.model.predict_instances(img_normed, prob_thresh=self.prob_thresh)
 
         if self.min_size>0:
             #remove cells below threshold
