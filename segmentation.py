@@ -54,7 +54,7 @@ class DummySegmentator(Segmentator):
         return np.ones_like(image)
 
 
-def extract_ring(labels, margin = 2, distance = 10):#distance = 10 for 40x; 4px for 20x
+def extract_ring(labels, margin = 2, distance = 4):#distance = 10 for 40x; 4px for 20x
     '''Create the cytosolic rings for biosensor dependant on nuclear/cytosolic fluorescence intensity.
     Args:
         margin: nb pixels between nucleus and ring

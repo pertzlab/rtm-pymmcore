@@ -106,14 +106,14 @@ class Controller:
                     channels_exposure = row['channels_exposure']
 
 
-                    acquisition_event = useq.MDAEvent(
-                        index= {"t": timestep, "c": 0, "p": fov.index}, # the index of the event in the sequence
-                        x_pos = fov.pos[0], # only one pos for all channels
-                        y_pos = fov.pos[1],
-                        min_start_time = float(row['time']),
-                        action=HardwareAutofocus()
-                    )
-                    self._queue.put(acquisition_event)
+                    # acquisition_event = useq.MDAEvent(
+                    #     index= {"t": timestep, "c": 0, "p": fov.index}, # the index of the event in the sequence
+                    #     x_pos = fov.pos[0], # only one pos for all channels
+                    #     y_pos = fov.pos[1],
+                    #     min_start_time = float(row['time']),
+                    #     action=HardwareAutofocus()
+                    # )
+                    # self._queue.put(acquisition_event)
                     
                     if timestep > 0:
                         fov.tracks = fov.tracks_queue.get(block=True) #wait max 10s for tracks
