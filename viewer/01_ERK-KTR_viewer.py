@@ -22,9 +22,7 @@ PARTICLES_FOLDER = "particles"
 LABELS_RINGS = "labels_rings"
 TRACKS_FOLDER = "tracks"
 
-DEFAULT_FOLDER = (
-    "\\\\izbkingston.izb.unibe.ch\\imaging.data\\mic01-imaging\\Alex\\pymmcore"
-)
+DEFAULT_FOLDER = "\\\\izbkingston.izb.unibe.ch\\imaging.data\\mic01-imaging\\Cedric\\experimental_data"
 
 
 class Layer_Info:
@@ -51,6 +49,7 @@ def load_exp_df(project_path):
         os.path.join(project_path, "exp_data.parquet")
     ):
         exp_df = pd.read_parquet(os.path.join(project_path, "exp_data.parquet"))
+        exp_df["stim_timestep"] = exp_df["stim_timestep"].apply(tuple)
 
 
 def get_cell_lines() -> List[str]:
@@ -68,11 +67,28 @@ def get_exposure_times(cell_line: str) -> List[int]:
     return sorted(exposure_times)
 
 
-def get_fov_choices(cell_line: str, stim_exposure: int) -> List[str]:
+def get_stim_timesteps(cell_line: str, stim_exposure: int) -> List[str]:
+    stim_timesteps = (
+        exp_df[
+            (exp_df["cell_line"] == cell_line)
+            & (exp_df["stim_exposure"] == stim_exposure)
+        ]["stim_timestep"]
+        .unique()
+        .tolist()
+    )
+    stim_timesteps_dict_map = {
+        "choices": stim_timesteps,
+        "key": lambda x: ",".join([str(i) for i in x]),
+    }
+    return stim_timesteps_dict_map
+
+
+def get_fov_choices(cell_line: str, stim_exposure: int, stim_timestep) -> List[str]:
     return (
         exp_df[
             (exp_df["cell_line"] == cell_line)
             & (exp_df["stim_exposure"] == stim_exposure)
+            & (exp_df["stim_timestep"] == stim_timestep)
         ]["fov"]
         .unique()
         .tolist()
@@ -144,6 +160,7 @@ def update_or_add_layer(layer_name, data, colormap, blending, layer_type="image"
     },
     exposure_time={"widget_type": ComboBox, "choices": [], "label": "StimExposure"},
     fov={"widget_type": ComboBox, "choices": [], "label": "FOV"},
+    stim_timestep={"widget_type": ComboBox, "choices": [], "label": "StimTimepoint"},
     call_button="Load FOV",
     next_fov={"widget_type": "PushButton", "label": "Next FOV ->"},
     previous_fov={"widget_type": "PushButton", "label": "Previous FOV <-"},
@@ -157,6 +174,7 @@ def update_or_add_layer(layer_name, data, colormap, blending, layer_type="image"
 def selection_widget(
     cell_line: str,
     exposure_time: int,
+    stim_timestep,
     fov: str,
     select_data: list[str] = [folder.folder_name for folder in FOLDERS_TO_LOAD],
     lazy: bool = True,
@@ -246,32 +264,44 @@ def selection_widget(
     global current_fov
     global current_cell_line
     global current_exposure_time
+    global current_stim_timestep
 
     if cell_line is None:
         cell_line = current_cell_line
     if exposure_time is None:
         exposure_time = current_exposure_time
+    if stim_timestep is None:
+        stim_timestep = current_stim_timestep
     if fov is None:
         fov = current_fov
 
     selection_widget.cell_line.choices = get_cell_lines()
     selection_widget.exposure_time.choices = get_exposure_times(cell_line)
-    selection_widget.fov.choices = get_fov_choices(cell_line, exposure_time)
+    selection_widget.stim_timestep.choices = get_stim_timesteps(
+        cell_line, exposure_time
+    )
+    selection_widget.fov.choices = get_fov_choices(
+        cell_line, exposure_time, stim_timestep
+    )
 
     selection_widget.cell_line.value = cell_line
     selection_widget.exposure_time.value = exposure_time
+    selection_widget.stim_timestep.value = stim_timestep
     selection_widget.fov.value = fov
 
     current_fov = fov
     current_cell_line = cell_line
     current_exposure_time = exposure_time
+    current_stim_timestep = stim_timestep
 
     return selection_widget
 
 
 def set_next(value):
     global current_fov
-    fov_choices = get_fov_choices(current_cell_line, current_exposure_time)
+    fov_choices = get_fov_choices(
+        current_cell_line, current_exposure_time, current_stim_timestep
+    )
     if current_fov in fov_choices:
         current_index = fov_choices.index(current_fov)
         if current_index < len(fov_choices) - 1:
@@ -283,7 +313,9 @@ def set_next(value):
 
 def set_previous(value):
     global current_fov
-    fov_choices = get_fov_choices(current_cell_line, current_exposure_time)
+    fov_choices = get_fov_choices(
+        current_cell_line, current_exposure_time, current_stim_timestep
+    )
     if current_fov in fov_choices:
         current_index = fov_choices.index(current_fov)
         if current_index > 0:
@@ -307,12 +339,23 @@ def update_exposure_times(event=None):
             exposure_times[0] if exposure_times else None
         )
 
+    update_stim_timesteps()
+
+
+def update_stim_timesteps(event=None):
+    stim_timepoints = get_stim_timesteps(
+        selection_widget.cell_line.value, selection_widget.exposure_time.value
+    )
+    selection_widget.stim_timestep.choices = stim_timepoints
+
     update_fov()
 
 
 def update_fov(event=None):
     fov_choices = get_fov_choices(
-        selection_widget.cell_line.value, selection_widget.exposure_time.value
+        selection_widget.cell_line.value,
+        selection_widget.exposure_time.value,
+        selection_widget.stim_timestep.value,
     )
     prev_choices = set(selection_widget.fov.choices)
 
@@ -349,6 +392,7 @@ if __name__ == "__main__":
     current_fov = None
     current_cell_line = None
     current_exposure_time = None
+    current_stim_timestep = None
     project_path = None
 
     # check if viewer is already open, if not create a new viewer
@@ -364,7 +408,8 @@ if __name__ == "__main__":
     viewer.window.add_dock_widget(selection_widget, name="Load FOV")
 
     selection_widget.cell_line.changed.connect(update_exposure_times)
-    selection_widget.exposure_time.changed.connect(update_fov)
+    selection_widget.exposure_time.changed.connect(update_stim_timesteps)
+    selection_widget.stim_timestep.changed.connect(update_fov)
     selection_widget.next_fov.changed.connect(set_next)
     selection_widget.previous_fov.changed.connect(set_previous)
 
