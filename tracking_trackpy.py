@@ -27,6 +27,7 @@ class TrackerTrackpy(tracking.Tracker):
         fov = metadata["fov_object"]
         df_new["frame"] = metadata["timestep"]
         df_new["time"] = metadata["time"]
+        df_new["fname"] = metadata["fname"]
 
         coordinates = np.array(
             df_new[["x", "y"]]
