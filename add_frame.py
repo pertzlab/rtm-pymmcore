@@ -3,9 +3,9 @@
 from useq import MDAEvent
 import numpy as np
 import skimage.io
-from stimulation import Stim
-from segmentation import Segmentator, extract_features
-from tracking import Tracker
+from stimulation.stimulation import Stim
+from segmentation.segmentation import Segmentator, extract_features
+from tracking.tracking import Tracker
 from utils import MetadataDict, ImgType
 import pandas as pd
 
@@ -72,32 +72,20 @@ class ImageProcessingPipeline:
         metadata: MetadataDict = event.metadata
 
         fov: FOV = metadata["fov_object"]
-        df_old = fov.tracks #get the previous table from the FOV- 
+        df_old = fov.tracks  # get the previous table from the FOV-
 
-        labels = self.segmentator.segment(img[self.segmentation_channel,:,:])
-        if metadata['stim'] == True:
-            stim_mask,labels_stim = self.stimulator.get_stim_mask(labels,metadata)
+        labels = self.segmentator.segment(img[self.segmentation_channel, :, :])
+        if metadata["stim"] == True:
+            stim_mask, labels_stim = self.stimulator.get_stim_mask(labels, metadata)
             fov.stim_mask_queue.put_nowait(stim_mask)
             # TODO: Reenable, but make exception for stimwholeframe
-            #mark in the df which cells have been stimulated
+            # mark in the df which cells have been stimulated
             # stim_index = np.where((df_tracked['frame']==metadata['timestep']) & (df_tracked['label'].isin(labels_stim)))[0]
             # df_tracked.loc[stim_index,'stim']=True
-        
-        df_new,labels_rings = extract_features(labels,img)
 
-        if not df_new.empty:
-            for key, value in metadata.items():
-                if isinstance(value, list):
-                    df_new[key] = df_new.apply(lambda row: value, axis=1)
-                elif isinstance(value, dict):
-                    for subkey, subvalue in value.items():
-                        df_new[subkey] = [subvalue] * len(df_new)
-                else:
-                    df_new[key] = value
- 
-
+        df_new, labels_rings = extract_features(labels, img)
         df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
-        #store the tracks in the FOV queue
+        # store the tracks in the FOV queue
         fov.tracks_queue.put(df_tracked)
 
         # after adding to queue, we have all the time to store the images and the tracks
@@ -107,15 +95,43 @@ class ImageProcessingPipeline:
             store_img(np.zeros_like(labels).astype(np.uint8), metadata, "stim_mask")
             store_img(np.zeros_like(labels).astype(np.uint8), metadata, "stim")
 
-        if not df_tracked.empty: 
-            try: 
-                df_tracked = df_tracked.drop('fov_object', axis=1)
-                df_tracked = df_tracked.drop('img_type', axis=1)
-                df_tracked = df_tracked.drop('channel', axis=1)
-                df_tracked = df_tracked.drop('last_channel', axis=1)
-            except KeyError: 
+        # store the intermediate DF containing the tracks
+        # add all the metadata to the DF
+        if not df_tracked.empty:
+            for key, value in metadata.items():
+                if isinstance(value, list):
+                    df_new[key] = df_new.apply(lambda row: value, axis=1)
+                elif isinstance(value, dict):
+                    for subkey, subvalue in value.items():
+                        df_new[subkey] = [subvalue] * len(df_new)
+                else:
+                    df_new[key] = value
+
+        df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
+        # store the tracks in the FOV queue
+        fov.tracks_queue.put(df_tracked)
+
+        # after adding to queue, we have all the time to store the images and the tracks
+        if metadata["stim"]:
+            store_img(stim_mask, metadata, "stim_mask")
+        else:
+            store_img(np.zeros_like(labels).astype(np.uint8), metadata, "stim_mask")
+            store_img(np.zeros_like(labels).astype(np.uint8), metadata, "stim")
+
+        if not df_tracked.empty:
+            try:
+                df_tracked = df_tracked.drop("fov_object", axis=1)
+                df_tracked = df_tracked.drop("img_type", axis=1)
+                df_tracked = df_tracked.drop("channel", axis=1)
+                df_tracked = df_tracked.drop("last_channel", axis=1)
+            except KeyError:
                 pass
 
+            # delete unnecessary collumns from the df
+            df_tracked = df_tracked.drop("fov_object", axis=1)
+            df_tracked = df_tracked.drop("img_type", axis=1)
+            df_tracked = df_tracked.drop("channel", axis=1)
+            df_tracked = df_tracked.drop("last_channel", axis=1)
 
         df_datatypes = {
             "frame": np.uint32,
