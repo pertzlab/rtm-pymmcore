@@ -11,7 +11,7 @@ class Stim:
     Base class for all stimulators. Specific implementations should inherit 
     from this class and override the get_stim_mask method.
     """
-    def get_stim_mask(self, label_image: np.ndarray) -> npt.NDArray[np.uint8]:
+    def get_stim_mask(self, label_image: np.ndarray, metadata:dict, img: np.ndarray) -> npt.NDArray[np.uint8]:
         """
         Parameters:
         label_image (np.ndarray): The label image to stimulate.
@@ -26,12 +26,12 @@ class StimWholeFOV(Stim):
     """
     Stimulate the whole FOV.
     """
-    def get_stim_mask(self, label_image: np.ndarray, metadata:dict) -> npt.NDArray[np.uint8]:
+    def get_stim_mask(self, label_image: np.ndarray, metadata:dict = None, img: np.array = None) -> npt.NDArray[np.uint8]:
         return np.ones_like(label_image), [1,2,3,4] #some dummy values
 
 class StimNothing(Stim):
     """Use when you don't want to stimulate. Returns empty stimulation mask."""
-    def get_stim_mask(self, label_image: np.ndarray) -> npt.NDArray[np.uint8]:
+    def get_stim_mask(self, label_image: np.ndarray, metadata:dict = None, img: np.array = None) -> npt.NDArray[np.uint8]:
         return np.zeros_like(label_image), [1,2,3,4] #some dummy values
 
 class StimCircle(Stim):

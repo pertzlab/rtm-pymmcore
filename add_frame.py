@@ -77,7 +77,7 @@ class ImageProcessingPipeline:
 
         labels = self.segmentator.segment(img[self.segmentation_channel, :, :])
         if metadata["stim"] == True:
-            stim_mask, labels_stim = self.stimulator.get_stim_mask(labels, metadata)
+            stim_mask, labels_stim = self.stimulator.get_stim_mask(labels, metadata, img)
             fov.stim_mask_queue.put_nowait(stim_mask)
             # TODO: Reenable, but make exception for stimwholeframe
             # mark in the df which cells have been stimulated
