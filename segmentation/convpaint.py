@@ -1,5 +1,5 @@
 import numpy as np
-from segmentation import Segmentator
+from .base_segmentator import Segmentator
 import skimage
 from napari_convpaint import conv_paint, conv_paint_utils
 
@@ -17,12 +17,13 @@ inherit from this class and override the segment method.
 
 class SegmentatorConvpaint(Segmentator):
 
-    def __init__(self, model_path: str = "2D_versatile_fluo", min_size=0):
+    def __init__(self, model_path: str, min_cell_size=0, fill_holes_smaller_than=0):
 
         self.random_forest, self.model, self.model_param, self.model_state = (
             conv_paint.load_model(model_path)
         )
-        self.min_size = min_size
+        self.min_cell_size = min_cell_size
+        self.fill_holes_smaller_than = fill_holes_smaller_than    
 
     def segment(self, img: np.ndarray) -> np.ndarray:
         """
@@ -34,10 +35,11 @@ class SegmentatorConvpaint(Segmentator):
         labels = self.model.predict_image(
             img_normed, self.random_forest, self.model_param
         )
-        if self.min_size > 0:
-            # remove cells below threshold
-            labels = skimage.morphology.remove_small_objects(
-                labels, min_size=self.min_size, connectivity=1
-            )
-        labels = skimage.measure.label(labels, background=1)
+        labels = labels - 1
+        labels = labels.astype(bool)
+        if self.fill_holes_smaller_than > 0:
+            labels = skimage.morphology.remove_small_holes(labels, area_threshold=self.fill_holes_smaller_than)
+        labels = skimage.morphology.label(labels)
+        if self.min_cell_size > 0:
+            labels = skimage.morphology.remove_small_objects(labels, min_size = self.min_cell_size) 
         return labels

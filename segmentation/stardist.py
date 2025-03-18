@@ -1,12 +1,7 @@
 import numpy as np
-from skimage.measure import label
-from segmentation import Segmentator
+from .base_segmentator import Segmentator
 import skimage
-from skimage.segmentation import expand_labels
-from skimage.measure import regionprops_table
-import pandas as pd
 
-import stardist 
 import csbdeep
 from stardist.models import StarDist2D
 import matplotlib.pyplot as plt

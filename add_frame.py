@@ -3,9 +3,10 @@
 from useq import MDAEvent
 import numpy as np
 import skimage.io
-from stimulation.stimulation import Stim
-from segmentation.segmentation import Segmentator, extract_features
-from tracking.tracking import Tracker
+from stimulation.base_stim import Stim
+import stimulation.base_stim as base_stim
+import segmentation.base_segmentator as base_segmentator
+import tracking.base_tracker as base_tracker
 from utils import MetadataDict, ImgType
 import pandas as pd
 
@@ -34,9 +35,9 @@ def store_img(img: np.array, metadata: MetadataDict, folder: str):
 class ImageProcessingPipeline:
     def __init__(
         self,
-        segmentator: Segmentator,
-        stimulator: Stim,
-        tracker: Tracker,
+        segmentator: base_segmentator.Segmentator,
+        stimulator: base_stim.Stim,
+        tracker: base_tracker.Tracker,
         segmentation_channel: int = 0,
     ):
         self.segmentator = segmentator
@@ -83,7 +84,7 @@ class ImageProcessingPipeline:
             # stim_index = np.where((df_tracked['frame']==metadata['timestep']) & (df_tracked['label'].isin(labels_stim)))[0]
             # df_tracked.loc[stim_index,'stim']=True
 
-        df_new, labels_rings = extract_features(labels, img)
+        df_new, labels_rings = base_segmentator.extract_features(labels, img)
         df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
         # store the tracks in the FOV queue
         fov.tracks_queue.put(df_tracked)

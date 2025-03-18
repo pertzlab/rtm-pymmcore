@@ -1,24 +1,7 @@
 import numpy as np
-from segmentation import Segmentator
+from .base_segmentator import Segmentator
 import skimage
-from napari_convpaint import conv_paint, conv_paint_utils
-
-
-from imaging_server_kit import Client
-
-client = Client("http://localhost:8000")
-
-print(client.algorithms)
-# [`rembg`, `stardist`, `cellpose`]
-
-algo_output = client.run_algorithm(
-    algorithm="rembg",
-    image=(...),
-    rembg_model_name="silueta",
-)
-
-
-import matplotlib.pyplot as plt
+import imaging_server_kit 
 
 """
 Segmentation module for image processing.
@@ -29,29 +12,27 @@ inherit from this class and override the segment method.
 """
 
 
-class SegmentatorConvpaint(Segmentator):
+class SegmentatorImagingServerKit(Segmentator):
 
-    def __init__(self, model_path: str = "2D_versatile_fluo", min_size=0):
+    def __init__(self, server:str, algorithm: str, model_param: dict = None, min_size: int = 0):
 
-        self.random_forest, self.model, self.model_param, self.model_state = (
-            conv_paint.load_model(model_path)
-        )
+        self.algorithm = algorithm
+        self.model_param = model_param
+        self.client = imaging_server_kit.Client(server)
         self.min_size = min_size
 
     def segment(self, img: np.ndarray) -> np.ndarray:
         """
-        Run the stardist model on data and do post-processing (remove small cells)
+        Run the an imagekit model on data and do post-processing (remove small cells)
         """
+        params = {'image': img}
+        if self.model_param is not None:
+            params.update(self.model_param)
 
-        mean, std = conv_paint_utils.compute_image_stats(img)
-        img_normed = conv_paint_utils.normalize_image(img, mean, std)
-        labels = self.model.predict_image(
-            img_normed, self.random_forest, self.model_param
-        )
+        labels = self.client.run_algorithm(self.algorithm, **params)[0][0]
         if self.min_size > 0:
             # remove cells below threshold
             labels = skimage.morphology.remove_small_objects(
                 labels, min_size=self.min_size, connectivity=1
             )
-        labels = skimage.measure.label(labels, background=1)
         return labels
