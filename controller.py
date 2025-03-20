@@ -177,7 +177,7 @@ class Controller:
                                     y_pos = row['fov_object'].pos[1],
                                     exposure = stim_exposure,    
                                     min_start_time=float(row['time']), 
-                                    properties=[PropertyTuple(stim_profile["device_name"], stim_profile["property_name"], 100)]
+                                    properties=[PropertyTuple(stim_profile["device_name"], stim_profile["property_name"], stim_profile["power"])]
                                 )
                             else: 
                                 stimulation_event = useq.MDAEvent(
