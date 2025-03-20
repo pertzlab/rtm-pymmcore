@@ -23,7 +23,7 @@ class SegmentatorConvpaint(Segmentator):
             conv_paint.load_model(model_path)
         )
         self.min_cell_size = min_cell_size
-        self.fill_holes_smaller_than = fill_holes_smaller_than    
+        self.fill_holes_smaller_than = fill_holes_smaller_than
 
     def segment(self, img: np.ndarray) -> np.ndarray:
         """
@@ -38,8 +38,12 @@ class SegmentatorConvpaint(Segmentator):
         labels = labels - 1
         labels = labels.astype(bool)
         if self.fill_holes_smaller_than > 0:
-            labels = skimage.morphology.remove_small_holes(labels, area_threshold=self.fill_holes_smaller_than)
+            labels = skimage.morphology.remove_small_holes(
+                labels, area_threshold=self.fill_holes_smaller_than
+            )
         labels = skimage.morphology.label(labels)
         if self.min_cell_size > 0:
-            labels = skimage.morphology.remove_small_objects(labels, min_size = self.min_cell_size) 
+            labels = skimage.morphology.remove_small_objects(
+                labels, min_size=self.min_cell_size
+            )
         return labels

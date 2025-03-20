@@ -1,7 +1,7 @@
 import numpy as np
 from .base_segmentator import Segmentator
 import skimage
-import imaging_server_kit 
+import imaging_server_kit
 
 """
 Segmentation module for image processing.
@@ -14,7 +14,9 @@ inherit from this class and override the segment method.
 
 class SegmentatorImagingServerKit(Segmentator):
 
-    def __init__(self, server:str, algorithm: str, model_param: dict = None, min_size: int = 0):
+    def __init__(
+        self, server: str, algorithm: str, model_param: dict = None, min_size: int = 0
+    ):
 
         self.algorithm = algorithm
         self.model_param = model_param
@@ -25,7 +27,7 @@ class SegmentatorImagingServerKit(Segmentator):
         """
         Run the an imagekit model on data and do post-processing (remove small cells)
         """
-        params = {'image': img}
+        params = {"image": img}
         if self.model_param is not None:
             params.update(self.model_param)
 

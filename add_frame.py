@@ -2,7 +2,6 @@
 
 from useq import MDAEvent
 import numpy as np
-import skimage.io
 from stimulation.base_stim import Stim
 import stimulation.base_stim as base_stim
 import segmentation.base_segmentator as base_segmentator
@@ -77,7 +76,9 @@ class ImageProcessingPipeline:
 
         labels = self.segmentator.segment(img[self.segmentation_channel, :, :])
         if metadata["stim"] == True:
-            stim_mask, labels_stim = self.stimulator.get_stim_mask(labels, metadata, img)
+            stim_mask, labels_stim = self.stimulator.get_stim_mask(
+                labels, metadata, img
+            )
             fov.stim_mask_queue.put_nowait(stim_mask)
             # TODO: Reenable, but make exception for stimwholeframe
             # mark in the df which cells have been stimulated
@@ -95,7 +96,7 @@ class ImageProcessingPipeline:
                         df_new[subkey] = [subvalue] * len(df_new)
                 else:
                     df_new[key] = value
-      
+
         df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
         # store the tracks in the FOV queue
         fov.tracks_queue.put(df_tracked)
@@ -127,13 +128,11 @@ class ImageProcessingPipeline:
         }
 
         try:
-            df_tracked = df_tracked.astype(df_datatypes)       
+            df_tracked = df_tracked.astype(df_datatypes)
         except ValueError as e:
             print(e)
             print("Error in converting datatypes. df_tracked:")
             print(df_tracked)
-        
-
 
         df_tracked.to_parquet(
             os.path.join(fov.path, "tracks", f"{metadata['fname']}.parquet")
