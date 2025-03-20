@@ -7,6 +7,7 @@ import os
 from tifffile import imread as tiff_imread
 import dask.array as da
 from skimage.io.collection import alphanumeric_key
+import skimage
 import dask.array as da
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dask import delayed
@@ -388,6 +389,76 @@ def directorypicker(
     return directory
 
 
+def label_to_value(tracks, labels_stack, what, no_normalization=False):
+    particles_stack = np.zeros_like(labels_stack, dtype=np.uint16)
+    tracks_df_norm = tracks[["timestep", "label", what]].copy()
+    tracks_df_norm.replace([np.inf, -np.inf], np.nan, inplace=True)
+    tracks_df_norm.dropna(inplace=True)
+    if (
+        tracks_df_norm[what].dtype in [np.float16, np.float32, np.float64]
+        and not no_normalization
+    ):
+        what_values = tracks_df_norm[what].to_numpy()
+        max_value = what_values.max()
+        min_value = what_values.min()
+        normalized_values = (what_values - min_value) * 255.0 / (max_value - min_value)
+        normalized_values = np.clip(normalized_values, 0, 255).astype(np.uint8)
+        tracks_df_norm["what_2"] = normalized_values
+        tracks_df_norm.drop(what, axis=1, inplace=True)
+        tracks_df_norm.rename(columns={"what_2": what}, inplace=True)
+    elif tracks_df_norm[what].dtype in [np.uint32, np.uint64, np.int32, np.int64]:
+        particles_stack = np.zeros_like(labels_stack, dtype=np.uint32)
+    else:
+        particles_stack = np.zeros_like(labels_stack, dtype=np.float64)
+    for frame in range(labels_stack.shape[0]):
+        labels_f = np.array(labels_stack[frame, :, :])
+
+        tracks_f = tracks_df_norm[tracks_df_norm["timestep"] == frame]
+        from_label = tracks_f["label"].values
+        to_particle = tracks_f[what].to_numpy()
+        skimage.util.map_array(
+            labels_f, from_label, to_particle, out=particles_stack[frame, :, :]
+        )
+    return particles_stack
+
+
+# widget to get ERK-KTR CNr overlay
+@magicgui(
+    next_fov={"widget_type": "PushButton", "label": "Add CNr layer"},
+    auto_call=True,
+)
+def add_cnr_overlay(next_fov: bool = False):
+    exp_df_current_fov = exp_df.query(
+        "cell_line == @current_cell_line and stim_exposure == @current_exposure_time and fov == @current_fov"
+    ).copy()
+    if not exp_df_current_fov.columns.str.contains("CNr").any():
+        exp_df_current_fov["CNr"] = (
+            exp_df_current_fov["mean_intensity_C1_ring"]
+            / exp_df_current_fov["mean_intensity_C1_nuc"]
+        )
+    particles_stack = viewer.layers["particles"].data
+    if isinstance(particles_stack, da.Array):
+        particles_stack = particles_stack.compute()
+    labels_cnr_overlay = label_to_value(
+        exp_df_current_fov, particles_stack, "CNr", True
+    )
+    viewer.add_image(labels_cnr_overlay, name="CNr", colormap="viridis")
+
+    selection_widget.cell_line.choices = get_cell_lines()
+    selection_widget.exposure_time.choices = get_exposure_times(current_cell_line)
+    selection_widget.stim_timestep.choices = get_stim_timesteps(
+        current_cell_line, current_exposure_time
+    )
+    selection_widget.fov.choices = get_fov_choices(
+        current_cell_line, current_exposure_time, current_stim_timestep
+    )
+
+    selection_widget.cell_line.value = current_cell_line
+    selection_widget.exposure_time.value = current_exposure_time
+    selection_widget.stim_timestep.value = current_stim_timestep
+    selection_widget.fov.value = current_fov
+
+
 if __name__ == "__main__":
     current_fov = None
     current_cell_line = None
@@ -406,6 +477,7 @@ if __name__ == "__main__":
         directorypicker, name="Choose a directory"
     )
     viewer.window.add_dock_widget(selection_widget, name="Load FOV")
+    viewer.window.add_dock_widget(add_cnr_overlay, name="Add CNr overlay")
 
     selection_widget.cell_line.changed.connect(update_exposure_times)
     selection_widget.exposure_time.changed.connect(update_stim_timesteps)
