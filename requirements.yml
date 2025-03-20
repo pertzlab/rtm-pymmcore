@@ -1,4 +1,4 @@
-name: pymmc_w_stardist
+name: pymmc_stardist_imagingserver
 channels:
   - defaults
   - conda-forge
@@ -22,3 +22,5 @@ dependencies:
     - stardist
     - csbdeep
     - trackpy
+    - imaging-server-kit
+    - napari_micromanager

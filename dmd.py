@@ -18,7 +18,7 @@ class DMD():
         mask is in dmd space (600px*800px)
 
     '''
-    def __init__(self, mmc: CMMCorePlus, calibration_profile, test_mode :bool= False):
+    def __init__(self, mmc: CMMCorePlus, calibration_profile, affine_matrix=None, test_mode :bool= False):
         '''Args:
             mmc: core object from CMMCorePlus()
             test_mode: try the function without a DMD set up in uManager. Defaults to False.
@@ -28,6 +28,8 @@ class DMD():
         self.test_mode = test_mode
         self.affine = None
         self.calibration_profile = calibration_profile
+        if affine_matrix is not None: 
+            self.affine = affine_matrix
 
         if test_mode == False:
             self.name = self.mmc.getSLMDevice()
@@ -53,6 +55,8 @@ class DMD():
         img_transformed = skimage.transform.warp(img, self.affine, output_shape=(self.height,self.width), 
                                                  order=None, mode='constant', cval=0.0, clip=True, preserve_range=True)
         img_transformed = img_transformed.astype(np.uint8)
+        if np.max(img_transformed) == 1:
+            img_transformed = img_transformed*255
         return img_transformed
     
 
@@ -164,7 +168,6 @@ class DMD():
         if calibration_points_DMD is None:
             calibration_points_DMD = []
             calibration_points_DMD = self.select_well_distributed_points(valid_pixels, n_points)
-        
         for p in calibration_points_DMD: 
             img_p = np.zeros((self.height, self.width)).astype(np.uint8)
             src.append((p[1],p[0]))
@@ -172,15 +175,19 @@ class DMD():
             img_p[rr, cc] = 255
             event_p = MDAEvent(slm_image=SLMImage(data=img_p, device=self.name), exposure=exposure, 
                                channel={"config":self.calibration_profile["channel_config"], "group":self.calibration_profile["channel_group"]}, 
-                               properties=[PropertyTuple(self.calibration_profile["device_name"], self.calibration_profile["property_name"], self.calibration_profile["power"])])
+                               properties=[(self.calibration_profile["device_name"], self.calibration_profile["property_name"], self.calibration_profile["power"])])
             events.append(event_p)
 
         self.mmc.mda.events.frameReady.disconnect()
         @self.mmc.mda.events.frameReady.connect
         def new_frame(img: np.ndarray, event: MDAEvent):
             calibration_images.append(img)
+            plt.imshow(img, cmap='gray')
+            plt.show()
 
-        self.mmc.mda.run(events)
+        for event in events:
+            self.mmc.mda.run([event])
+            time.sleep(1)
         calibration_images = np.array(calibration_images)
    
         for img in calibration_images:
@@ -198,7 +205,7 @@ class DMD():
         if np.sum(inliers) < 5:
             self.mmc.mda.events.frameReady.disconnect()
             self.mmc.mda.run([MDAEvent(slm_image=SLMImage(data=True,device=self.name),exposure=1, 
-                            properties=[PropertyTuple(self.calibration_profile["device_name"], self.calibration_profile["property_name"], 0)])])
+                            properties=[(self.calibration_profile["device_name"], self.calibration_profile["property_name"], 0)])])
 
 
             raise ValueError("Not enough inliers found for calibration. Try again with a different FOV.")
@@ -211,8 +218,8 @@ class DMD():
             test_image = []
             test_src = []
             test_dst = []
-            p0, p1, p2 = ([350, 500], [400,800], [700, 800])
-            for p in [p0,p1,p2]:
+            p0, p1, p2 = ([200, 500], [500,100], [700, 800])
+            for p in self.select_well_distributed_points(valid_pixels, 3):
                 img_p = np.zeros((self.camera_height,self.camera_width)).astype(np.uint8)
                 rr, cc = skimage.draw.disk((p[0],p[1]), 30)
                 test_src.append((p[1],p[0]))
@@ -220,7 +227,7 @@ class DMD():
                 img_warp = self.affine_transform(img_p)
                 event_p = MDAEvent(slm_image=SLMImage(data=img_warp,device=self.name),exposure=exposure, 
                                channel={"config":self.calibration_profile["channel_config"], "group":self.calibration_profile["channel_group"]}, 
-                               properties=[PropertyTuple(self.calibration_profile["device_name"], self.calibration_profile["property_name"], self.calibration_profile["power"])])
+                               properties=[(self.calibration_profile["device_name"], self.calibration_profile["property_name"], self.calibration_profile["power"])])
                 events.append(event_p)
 
             self.mmc.mda.events.frameReady.disconnect()
@@ -228,7 +235,9 @@ class DMD():
             def new_frame(img: np.ndarray, event: MDAEvent):
                 test_image.append(img)
 
-            self.mmc.mda.run(events)
+            for event in events:
+                self.mmc.mda.run([event])
+                time.sleep(1)
             calibration_images = np.array(calibration_images)
             for img in test_image:
                 img = skimage.filters.gaussian(img, sigma=1)
@@ -255,79 +264,5 @@ class DMD():
             plt.show()
         self.mmc.mda.events.frameReady.disconnect()
         self.mmc.mda.run([MDAEvent(slm_image=SLMImage(data=True,device=self.name),exposure=1, 
-                        properties=[PropertyTuple(self.calibration_profile["device_name"], self.calibration_profile["property_name"], 0)])])
-
-
-
-
-
-    # def display_mask(self,mask):
-    #     '''Display the mask loaded on the dmd. Displays it for the set exposure.
-    #     '''
- 
-    #     self.mmc.setSLMImage(self.name, mask)
-
-    #     self.mmc.displaySLMImage(self.name)
-
-    # def set_exposure(self, exposure_time):
-    #     '''Set the time a mask is displayed on the dmd.
-    #     '''
-    #     #todo: check for max allowed exposure time
-    #     self.exposure_time = exposure_time
-    #     self.mmc.setSLMExposure(self.name,exposure_time)
-
-    # def capture_and_stim_mask(self, mask, dmd_exposure_time,camera_exposure_time,delay=0):
-    #     '''Stimulate using dmd and take an image.
-    #     '''    
-    #     #stimulate using dmd and take an image of the stim
-    #     self.mmc.setSLMExposure(self.name, dmd_exposure_time)#set exposure dmd
-    #     self.mmc.setExposure(camera_exposure_time)#set exposure camera
-    #     self.upload_mask(mask) #upload mask to dmd        
-    #     self.display_mask(mask)#display on dmd
-    #     time.sleep(delay)#time between stimulation begin and capture begin
-    #     self.mmc.snapImage()#take picture
-        
-    #     #TODO check if this works, then delete tagged_img references
-    #     img = self.mmc.getImage()
-
-    #     #tagged_img = self.mmc.getTaggedImage()
-    #     #img_height = tagged_img.tags['Height']
-    #     #img_width = tagged_img.tags['Width']
-    #     #img = tagged_img.pix.reshape(img_height, img_width)
-
-    #     return img
-
-    # def capture_and_stim_full_on(self, dmd_exposure_time,camera_exposure_time,delay=0):
-    #     '''Stimulate using dmd (all pixels on) and take an image.
-    #     '''    
-    #     #stimulate using dmd and take an image of the stim
-    #     self.mmc.setSLMExposure(self.name, dmd_exposure_time)#set exposure dmd
-    #     self.mmc.setExposure(camera_exposure_time)#set exposure camera
-    #     self.mmc.setSLMPixelsTo(self.name, 1)
-    #     self.mmc.displaySLMImage(self.name)
-    #     time.sleep(delay)#time between stimulation begin and capture begin
-    #     self.mmc.snapImage()#take picture
-    #     tagged_img = self.mmc.getTaggedImage() #TODO check if this is now fixed
-    #     img_height = tagged_img.tags['Height']
-    #     img_width = tagged_img.tags['Width']
-    #     img = tagged_img.pix.reshape(img_height, img_width)        
-    #     return img
-
-
-    # def capture_and_stim_img(self, img, affine, dmd_exposure_time,camera_exposure_time,delay=0):
-    #     '''Transform img using affine matrix, then stimulate using dmd and take an image.
-    #     ''' 
-    #     #mask = scipy.ndimage.affine_transform(img, affine, output_shape=(self.width, self.height))
-    #     mask = cv2.warpAffine(img, affine, (self.width, self.height))
-    #     img_captured = self.capture_and_stim_mask(mask, dmd_exposure_time,camera_exposure_time, delay)
-    #     return img_captured
-
-
-    # def transform_and_disp(self, img, affine):
-    #     '''Transform img using affine matrix, then uplaod and display it.
-    #     ''' 
-    #     mask = cv2.warpAffine(img, affine, (self.width, self.height))
-    #     #self.core.set_slm_exposure(self.name, 20000)#set exposure dmd    
-    #     self.display_mask(mask)#display on dmd
-
+                        properties=[(self.calibration_profile["device_name"], self.calibration_profile["property_name"], 0)])])
 

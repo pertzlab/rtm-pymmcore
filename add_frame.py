@@ -3,9 +3,10 @@
 from useq import MDAEvent
 import numpy as np
 import skimage.io
-from stimulation import Stim
-from segmentation import Segmentator, extract_features
-from tracking import Tracker
+from stimulation.base_stim import Stim
+import stimulation.base_stim as base_stim
+import segmentation.base_segmentator as base_segmentator
+import tracking.base_tracker as base_tracker
 from utils import MetadataDict, ImgType
 import pandas as pd
 
@@ -34,9 +35,9 @@ def store_img(img: np.array, metadata: MetadataDict, folder: str):
 class ImageProcessingPipeline:
     def __init__(
         self,
-        segmentator: Segmentator,
-        stimulator: Stim,
-        tracker: Tracker,
+        segmentator: base_segmentator.Segmentator,
+        stimulator: base_stim.Stim,
+        tracker: base_tracker.Tracker,
         segmentation_channel: int = 0,
     ):
         self.segmentator = segmentator
@@ -72,18 +73,18 @@ class ImageProcessingPipeline:
         metadata: MetadataDict = event.metadata
 
         fov: FOV = metadata["fov_object"]
-        df_old = fov.tracks #get the previous table from the FOV- 
+        df_old = fov.tracks  # get the previous table from the FOV-
 
-        labels = self.segmentator.segment(img[self.segmentation_channel,:,:])
-        if metadata['stim'] == True:
-            stim_mask,labels_stim = self.stimulator.get_stim_mask(labels,metadata)
+        labels = self.segmentator.segment(img[self.segmentation_channel, :, :])
+        if metadata["stim"] == True:
+            stim_mask, labels_stim = self.stimulator.get_stim_mask(labels, metadata, img)
             fov.stim_mask_queue.put_nowait(stim_mask)
             # TODO: Reenable, but make exception for stimwholeframe
-            #mark in the df which cells have been stimulated
+            # mark in the df which cells have been stimulated
             # stim_index = np.where((df_tracked['frame']==metadata['timestep']) & (df_tracked['label'].isin(labels_stim)))[0]
             # df_tracked.loc[stim_index,'stim']=True
-        
-        df_new,labels_rings = extract_features(labels,img)
+
+        df_new, labels_rings = base_segmentator.extract_features(labels, img)
 
         if not df_new.empty:
             for key, value in metadata.items():
@@ -94,10 +95,9 @@ class ImageProcessingPipeline:
                         df_new[subkey] = [subvalue] * len(df_new)
                 else:
                     df_new[key] = value
- 
-
+      
         df_tracked = self.tracker.track_cells(df_old, df_new, metadata)
-        #store the tracks in the FOV queue
+        # store the tracks in the FOV queue
         fov.tracks_queue.put(df_tracked)
 
         # after adding to queue, we have all the time to store the images and the tracks
@@ -107,15 +107,14 @@ class ImageProcessingPipeline:
             store_img(np.zeros_like(labels).astype(np.uint8), metadata, "stim_mask")
             store_img(np.zeros_like(labels).astype(np.uint8), metadata, "stim")
 
-        if not df_tracked.empty: 
-            try: 
-                df_tracked = df_tracked.drop('fov_object', axis=1)
-                df_tracked = df_tracked.drop('img_type', axis=1)
-                df_tracked = df_tracked.drop('channel', axis=1)
-                df_tracked = df_tracked.drop('last_channel', axis=1)
-            except KeyError: 
+        if not df_tracked.empty:
+            try:
+                df_tracked = df_tracked.drop("fov_object", axis=1)
+                df_tracked = df_tracked.drop("img_type", axis=1)
+                df_tracked = df_tracked.drop("channel", axis=1)
+                df_tracked = df_tracked.drop("last_channel", axis=1)
+            except KeyError:
                 pass
-
 
         df_datatypes = {
             "frame": np.uint32,
@@ -126,11 +125,15 @@ class ImageProcessingPipeline:
             "fov": np.uint16,
             "stim_exposure": np.float32,
         }
+
         try:
-            df_tracked = df_tracked.astype(df_datatypes)
-        except:
-            print("Error in converting the data types of the dataframe")
-            pass
+            df_tracked = df_tracked.astype(df_datatypes)       
+        except ValueError as e:
+            print(e)
+            print("Error in converting datatypes. df_tracked:")
+            print(df_tracked)
+        
+
 
         df_tracked.to_parquet(
             os.path.join(fov.path, "tracks", f"{metadata['fname']}.parquet")

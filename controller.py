@@ -162,21 +162,22 @@ class Controller:
                                 stim_mask = fov.stim_mask_queue.get(block=True) #TODO: Not really a good idea, but timeout is also not good, as 
                                 # the queue fills up already much in advance of the actual acquisition for optofgfr experiments without constant stimming. 
                                 # best would be to either slow down the iteration through the dataframe, or give error masks, or something else
+                                import matplotlib.pyplot as plt
                                 if np.all(stim_mask == 1):
                                     stim_mask = True
                                 else: 
                                     stim_mask = self._dmd.affine_transform(stim_mask)
 
                                 stimulation_event = useq.MDAEvent(
+                                    slm_image=SLMImage(data=stim_mask, device=self._dmd.name),
                                     index= {"t": timestep, "p": fov.index}, # the index of the event in the sequence
                                     channel = {"config":stim_profile["channel"], "group":self._current_group}, # the channel presets we want to acquire
                                     metadata = metadata_dict, # (custom) metadata that is attatched to the event/image
                                     x_pos = row['fov_object'].pos[0], # only one pos for all channels
                                     y_pos = row['fov_object'].pos[1],
-                                    exposure = stim_exposure, 
+                                    exposure = stim_exposure,    
                                     min_start_time=float(row['time']), 
-                                    slm_image=SLMImage(data=stim_mask),
-                                    properties=[PropertyTuple(stim_profile["device_name"], stim_profile["property_name"], stim_profile["power"])]
+                                    properties=[PropertyTuple(stim_profile["device_name"], stim_profile["property_name"], 100)]
                                 )
                             else: 
                                 stimulation_event = useq.MDAEvent(
