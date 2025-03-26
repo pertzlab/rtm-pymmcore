@@ -21,3 +21,5 @@ class FOV:
         self.mda_sequence = None  # mda sequence object used for timing
         self.tracks = None  # tracks dataframe
         self.linker = None  # Linker object that will be stored from trackpy
+
+        self.last_stim_mask = queue.LifoQueue(maxsize=1)

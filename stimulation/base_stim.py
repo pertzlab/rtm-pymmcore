@@ -6,11 +6,15 @@ from fov import FOV
 
 
 # TODO return also labels_stim, list in which the stimulated cells are marked
-class Stim:
+class Stim():
     """
     Base class for all stimulators. Specific implementations should inherit
     from this class and override the get_stim_mask method.
     """
+
+    def __init__(self, lazy_stim_mask_generation: bool = False):
+        self.lazy_stim_mask_genration = lazy_stim_mask_generation
+    
 
     def get_stim_mask(
         self, label_image: np.ndarray, metadata: dict, img: np.ndarray

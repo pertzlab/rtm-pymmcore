@@ -74,16 +74,35 @@ class ImageProcessingPipeline:
         fov: FOV = metadata["fov_object"]
         df_old = fov.tracks  # get the previous table from the FOV-
 
+        # Handle stimulator lazy mask generation
+        if self.stimulator.lazy_stim_mask_genration and metadata["stim"] and fov.last_stim_mask.qsize() > 0:
+            print("Lazy mask generation use last mask")
+            fov.stim_mask_queue.put_nowait(fov.last_stim_mask.get())
+
+        # Perform segmentation on the specified channel
         labels = self.segmentator.segment(img[self.segmentation_channel, :, :])
-        if metadata["stim"] == True:
-            stim_mask, labels_stim = self.stimulator.get_stim_mask(
-                labels, metadata, img
-            )
-            fov.stim_mask_queue.put_nowait(stim_mask)
-            # TODO: Reenable, but make exception for stimwholeframe
-            # mark in the df which cells have been stimulated
-            # stim_index = np.where((df_tracked['frame']==metadata['timestep']) & (df_tracked['label'].isin(labels_stim)))[0]
-            # df_tracked.loc[stim_index,'stim']=True
+
+        # Handle stimulation logic
+        if metadata["stim"]:
+            stim_mask, labels_stim = self.stimulator.get_stim_mask(labels, metadata, img)
+
+            print("normal mask generation")
+            if not self.stimulator.lazy_stim_mask_genration:
+                fov.stim_mask_queue.put_nowait(stim_mask)
+            if self.stimulator.lazy_stim_mask_genration and fov.last_stim_mask.empty(): 
+                fov.stim_mask_queue.put_nowait(stim_mask)
+                fov.last_stim_mask.put(stim_mask)
+            
+
+
+            # TODO: Reenable marking stimulated cells in the dataframe
+            # This requires handling exceptions for specific stimulator types
+            # Example:
+            # stim_index = np.where(
+            #     (df_tracked['frame'] == metadata['timestep']) & 
+            #     (df_tracked['label'].isin(labels_stim))
+            # )[0]
+            # df_tracked.loc[stim_index, 'stim'] = True
 
         df_new, labels_rings = base_segmentator.extract_features(labels, img)
 
