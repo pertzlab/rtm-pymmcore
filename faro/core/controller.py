@@ -577,6 +577,13 @@ class Controller:
             pipeline: ImageProcessingPipeline instance.
             writer: Storage backend. If None, Analyzer uses TiffWriter (default).
                 Pass an OmeZarrWriter for OME-Zarr output.
+
+        Note:
+            ``run_experiment`` automatically stops any continuous sequence
+            acquisition (live mode) before starting MDA, and pumps the Qt
+            event loop while waiting on the MDA worker, so napari-mm's own
+            ``preview`` layer keeps updating throughout the run without the
+            window freezing.
         """
         self._mic = mic
         self._pipeline = pipeline
@@ -836,6 +843,18 @@ class Controller:
 
     def _run_mda_with_events(self, events, *, stim_mode):
         """Run the MDA event loop — shared by run/continue_experiment."""
+        # Live mode (continuous sequence acquisition) and MDA both drive the
+        # camera. If live is still running when the MDA's first snapImage
+        # fires, the snap buffer is consumed by the live-poll listener (in
+        # napari-micromanager: ``_core_link._image_snapped``) before the
+        # engine calls getImage, and the engine raises "Camera image buffer
+        # read failed". Stop it unconditionally before MDA starts.
+        try:
+            if self._mic.mmc.isSequenceRunning():
+                self._mic.mmc.stopSequenceAcquisition()
+        except Exception:
+            pass
+
         self._mic.connect_frame(self._on_frame_ready)
 
         # Set up event queue for extend_experiment support.
@@ -867,7 +886,7 @@ class Controller:
                     break
 
                 while self._queue.qsize() >= 3:
-                    time.sleep(0.1)
+                    self._pump_qt_and_sleep(0.05)
                 self._n_channels = len(rtm_event.channels)
 
                 # In "previous" mode at t=0 there is no predecessor
@@ -909,13 +928,54 @@ class Controller:
             self._event_queue = None
             self._queue.put(self.STOP_EVENT)
             if mda_thread is not None:
-                mda_thread.join()
+                self._qt_join(mda_thread)
             self._mic.disconnect_frame(self._on_frame_ready)
 
         if self._fatal_error is not None:
             fatal = self._fatal_error
             self._fatal_error = None
             raise fatal
+
+    # ------------------------------------------------------------------
+    # Qt-event-loop hygiene
+    # ------------------------------------------------------------------
+    #
+    # _run_mda_with_events runs on the main thread — the same thread napari
+    # paints from. Without explicit pumping, time.sleep / thread.join starve
+    # the Qt event loop, so napari freezes for the duration of the run and
+    # any main-thread-queued updates (e.g. napari-micromanager's preview
+    # layer refreshes) stay in the queue until the cell exits. Both helpers
+    # below fall back to plain blocking if Qt isn't loaded at all.
+
+    @staticmethod
+    def _pump_qt_and_sleep(dt: float) -> None:
+        try:
+            from qtpy.QtCore import QCoreApplication
+        except Exception:
+            time.sleep(dt)
+            return
+        app = QCoreApplication.instance()
+        if app is None:
+            time.sleep(dt)
+            return
+        app.processEvents()
+        time.sleep(dt)
+
+    @staticmethod
+    def _qt_join(thread: threading.Thread, poll_s: float = 0.05) -> None:
+        try:
+            from qtpy.QtCore import QCoreApplication
+        except Exception:
+            thread.join()
+            return
+        app = QCoreApplication.instance()
+        if app is None:
+            thread.join()
+            return
+        while thread.is_alive():
+            app.processEvents()
+            thread.join(timeout=poll_s)
+        app.processEvents()
 
     # ------------------------------------------------------------------
     # Frame handling
