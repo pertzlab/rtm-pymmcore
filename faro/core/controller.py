@@ -849,11 +849,9 @@ class Controller:
         # napari-micromanager: ``_core_link._image_snapped``) before the
         # engine calls getImage, and the engine raises "Camera image buffer
         # read failed". Stop it unconditionally before MDA starts.
-        try:
-            if self._mic.mmc.isSequenceRunning():
-                self._mic.mmc.stopSequenceAcquisition()
-        except Exception:
-            pass
+        mmc = getattr(self._mic, "mmc", None)
+        if mmc is not None and mmc.isSequenceRunning():
+            mmc.stopSequenceAcquisition()
 
         self._mic.connect_frame(self._on_frame_ready)
 
