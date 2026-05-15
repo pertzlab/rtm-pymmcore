@@ -166,6 +166,42 @@ class Analyzer:
             return False
         return isinstance(self.pipeline.stimulator, (StimWithImage, StimWithPipeline))
 
+    @staticmethod
+    def _wait_for_frame_pumping_qt(
+        queue_obj, frame_idx: int, timeout: float, poll_s: float = 0.05
+    ):
+        """Wait for a frame on a ``FrameDispenser`` while pumping Qt events.
+
+        ``FrameDispenser.wait_for_frame`` is a plain ``threading.Condition.wait()``
+        with no Qt awareness. Called from the main thread (as
+        ``Controller._build_stim_slm`` does), it freezes the Qt event loop
+        for as long as the pipeline takes to produce the stim mask -- napari
+        freezes during every stim frame even though the actual GPU work is
+        on the pipeline's executor.
+
+        Poll with a short timeout and call ``QCoreApplication.processEvents``
+        between attempts, preserving the caller-supplied total timeout.
+        Falls back to a plain ``wait_for_frame`` if Qt isn't loaded.
+        """
+        try:
+            from qtpy.QtCore import QCoreApplication
+        except Exception:
+            return queue_obj.wait_for_frame(frame_idx, timeout=timeout)
+        app = QCoreApplication.instance()
+        if app is None:
+            return queue_obj.wait_for_frame(frame_idx, timeout=timeout)
+
+        deadline = time.monotonic() + timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            slice_dt = max(0.0, min(poll_s, remaining))
+            try:
+                return queue_obj.wait_for_frame(frame_idx, timeout=slice_dt)
+            except QueueEmpty:
+                if remaining <= 0:
+                    raise
+                app.processEvents()
+
     def get_stim_mask(
         self, fov_index: int, metadata: dict, *, timeout: float | None = None
     ) -> np.ndarray | None:
@@ -185,8 +221,8 @@ class Analyzer:
                 timeout = self._stim_mask_timeout
             frame_idx = metadata.get("timestep", 0)
             try:
-                mask = fov_state.stim_mask_queue.wait_for_frame(
-                    frame_idx, timeout=timeout
+                mask = self._wait_for_frame_pumping_qt(
+                    fov_state.stim_mask_queue, frame_idx, timeout
                 )
             except QueueEmpty as e:
                 # _build_stim_slm still log-and-continues with False, but
