@@ -531,6 +531,14 @@ class ImageProcessingPipeline:
         # --- Parquet save (after unblocking — doesn't mutate df_tracked) ---
         df_to_save = convert_track_dtypes(df_tracked)
 
+        # Stash the latest full table + its filename (a reference, not a copy)
+        # so Analyzer.shutdown can flush each FOV's final table once at clean
+        # shutdown. This makes throttling the per-frame write via
+        # only_save_every_n_frames lossless on a normal finish: the on-disk
+        # parquet only lags the live table between the periodic writes below.
+        fov_obj.last_df_to_save = df_to_save
+        fov_obj.last_parquet_name = filename_for_parquet
+
         if frame_idx % self.only_save_every_n_frames == 0 or frame_idx == 0:
             with fov_obj.parquet_lock:
                 df_to_save.to_parquet(

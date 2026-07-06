@@ -277,6 +277,13 @@ class FovState:
         self.fov_timestep_counter = 0
         self.n_cells_latest = 0
         self.next_particle_id = 0
+        # Latest full tracks table + its parquet filename, stashed by the
+        # pipeline every frame (a reference, not a copy). When the per-frame
+        # parquet save is throttled via ``only_save_every_n_frames``, these let
+        # ``Analyzer.shutdown`` write each FOV's final table once at clean
+        # shutdown so no tail frames are lost from the on-disk record.
+        self.last_df_to_save: Optional[pd.DataFrame] = None
+        self.last_parquet_name: Optional[str] = None
 
 
 @dataclass

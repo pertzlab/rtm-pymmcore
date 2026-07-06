@@ -642,6 +642,13 @@ class Analyzer:
                     "call shutdown(drain_timeout=N) again with a larger "
                     "N if the experiment legitimately needs more time."
                 )
+            # wait_idle proved every pipeline task finished, so each FOV's
+            # last_df_to_save is its final accumulated table. Write it once
+            # here so that throttling the per-frame save via
+            # only_save_every_n_frames never drops the tail of a run: the
+            # periodic in-run writes may lag by up to N frames, but this final
+            # flush brings every FOV's on-disk parquet fully up to date.
+            self._flush_final_tracks()
 
         self._stop_event.set()
 
@@ -656,6 +663,34 @@ class Analyzer:
 
         if self.writer is not None:
             self.writer.close()
+
+    def _flush_final_tracks(self) -> None:
+        """Write each FOV's final accumulated tracks table to its parquet.
+
+        Called by :meth:`shutdown` once ``wait_idle`` has proved every
+        pipeline task finished. Complements the throttled per-frame save in
+        ``ImageProcessingPipeline.run`` (``only_save_every_n_frames``): the
+        in-run writes may lag the live table by up to N frames, so this
+        guarantees the on-disk record is complete after a clean finish (or a
+        Stop-button cancel, which also drains through ``shutdown``). Failures
+        are recorded as background errors rather than raised, so one bad FOV
+        can't abort teardown.
+        """
+        if self.pipeline is None:
+            return
+        tracks_dir = os.path.join(self.pipeline.storage_path, "tracks")
+        for fov_state in list(self.fov_states.values()):
+            df = fov_state.last_df_to_save
+            name = fov_state.last_parquet_name
+            if df is None or name is None:
+                continue
+            try:
+                with fov_state.parquet_lock:
+                    df.to_parquet(
+                        os.path.join(tracks_dir, name), compression="zstd"
+                    )
+            except Exception as e:
+                self._record_background_error("pipeline", e)
 
     def wait_idle(
         self, timeout: float | None = 30.0, poll: float = 0.05
