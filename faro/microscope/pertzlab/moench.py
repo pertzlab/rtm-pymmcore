@@ -1,4 +1,11 @@
 import pymmcore_plus
+
+# Disable pymmcore-plus's own rotating log file. On Windows the rollover does
+# os.rename() on pymmcore-plus.log, which fails with PermissionError [WinError
+# 32] whenever another handle (a previous kernel / CMMCorePlus instance) still
+# has the file open. Jungfrau does the same — routing logs to stderr only
+# sidesteps the rotation entirely. Must run before any CMMCorePlus is created.
+pymmcore_plus.configure_logging(file=None, stderr_level="CRITICAL")
 import weakref
 
 from faro.microscope.pymmcore import PyMMCoreMicroscope
@@ -187,6 +194,7 @@ class Moench(PyMMCoreMicroscope):
     def __init__(self, affine_calibration_matrix=None, uncropped=False):
         super().__init__()
 
+        pymmcore_plus.configure_logging(file=None, stderr_level="CRITICAL")
         pymmcore_plus.use_micromanager(self.MICROMANAGER_PATH)
         self.mmc = pymmcore_plus.CMMCorePlus(mm_path=self.MICROMANAGER_PATH)
         self.slm_dev = None
