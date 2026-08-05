@@ -1,6 +1,8 @@
 import pymmcore_plus
 import weakref
 
+import numpy as np
+
 from faro.microscope.pymmcore import PyMMCoreMicroscope
 from faro.core.data_structures import ImgType
 from faro.core.dmd import DMD
@@ -780,7 +782,7 @@ class MoenchMDAEngine(MDAEngine):
         )
 
     def _set_event_slm_image(self, event: MDAEvent) -> None:
-        """Upload the SLM pattern, then force a long *hold* exposure on the DMD.
+        """Upload the SLM pattern as an array, then force a long *hold* exposure.
 
         The base method uploads the image and, if the ``SLMImage`` carries an
         exposure, writes it via ``setSLMExposure``. On the Mosaic3 that value is
@@ -791,6 +793,26 @@ class MoenchMDAEngine(MDAEngine):
         mode). The stim *dose* is unaffected -- it is gated by the
         camera-triggered LED, not the DMD. See ``nikonti-re/mosaic3/FINDINGS.md``.
         """
+        core = self.mmcore
+        # A scalar-bool SLMImage (all-on/all-off) reaches the base engine as
+        # setSLMPixelsTo, which the Mosaic3 ignores without raising, leaving
+        # whatever pattern was last latched on the mirrors. Expanding the
+        # scalar to a uint8 array routes it through setSLMImage instead, the
+        # only path this DMD reliably applies.
+        if event.slm_image is not None:
+            data = np.asarray(event.slm_image.data)
+            if data.ndim == 0:
+                slm_dev = event.slm_image.device or core.getSLMDevice()
+                full = np.full(
+                    (core.getSLMHeight(slm_dev), core.getSLMWidth(slm_dev)),
+                    255 if bool(data.item()) else 0,
+                    dtype=np.uint8,
+                )
+                event = event.model_copy(
+                    update={
+                        "slm_image": event.slm_image.model_copy(update={"data": full})
+                    }
+                )
         super()._set_event_slm_image(event)
         if event.slm_image is None:
             return
@@ -800,7 +822,6 @@ class MoenchMDAEngine(MDAEngine):
         )
         if not hold_ms:
             return
-        core = self.mmcore
         slm_device = event.slm_image.device or core.getSLMDevice()
         if not slm_device:
             return

@@ -1,11 +1,8 @@
 """Pure-Python unit tests for Pertzlab-specific faro code.
 
 Lives under ``tests/hardware/pertzlab/`` because its subjects are
-Pertzlab-scope-only: per-microscope power-property mappings (declared
-manually; an unmapped ``PowerChannel`` fails loud rather than silently
-dropping the requested power) and
-:class:`faro.microscope.pertzlab.moench.MoenchMDAEngine`'s
-``SKIP_WAIT_DEVICES`` filter.
+Pertzlab-scope-only: power-property mappings, ``SKIP_WAIT_DEVICES``,
+filter-turret verification, and the Moench engine's SLM uploads.
 
 These do **not** require a real scope and are **not** marked
 ``@pytest.mark.hardware``; they run in every test session.
@@ -15,9 +12,15 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
+from useq import MDAEvent
 
+from faro.core._useq_compat import SLMImage
 from faro.core.data_structures import Channel, PowerChannel
+from faro.microscope.pertzlab.moench import MoenchMDAEngine
+
+from tests.fake_mmc import build_core
 
 
 # ===================================================================
@@ -341,3 +344,71 @@ class TestFilterBlockVerify:
 
         assert mmc.getState_calls == 0
         assert mmc.setStateLabel_calls == []
+
+
+# ===================================================================
+# SLM uploads
+# ===================================================================
+
+
+class _SLMScene:
+    """Minimal scene declaring a camera and an SLM; never renders."""
+
+    image_height = image_width = 64
+    channels = ("phase-contrast",)
+    slm_name = "SLM"
+    slm_shape = (64, 64)
+
+    def render(self, event):
+        return np.zeros((self.image_height, self.image_width), dtype=np.uint16)
+
+
+@pytest.fixture()
+def slm_core():
+    return build_core(_SLMScene())
+
+
+def _record_slm_calls(core):
+    """Replace the core's two SLM upload paths with recorders."""
+    calls = []
+    core.setSLMImage = lambda label, image: calls.append(("setSLMImage", image))
+    core.setSLMPixelsTo = lambda *args: calls.append(("setSLMPixelsTo", args))
+    return calls
+
+
+class TestScalarSLMImageExpansion:
+    """Every SLM command reaches the core as an array, never as a scalar.
+
+    A scalar all-on/all-off goes out via ``setSLMPixelsTo``, which some DMDs
+    ignore without raising, leaving the last pattern on the mirrors.
+    """
+
+    @pytest.mark.parametrize(
+        ("data", "expected_value"), [(True, 255), (False, 0)], ids=["all-on", "all-off"]
+    )
+    def test_scalar_routed_through_set_slm_image(self, slm_core, data, expected_value):
+        engine = MoenchMDAEngine(slm_core)
+        calls = _record_slm_calls(slm_core)
+
+        engine._set_event_slm_image(
+            MDAEvent(slm_image=SLMImage(data=data, device="SLM"))
+        )
+
+        assert [name for name, _ in calls] == ["setSLMImage"]
+        image = calls[0][1]
+        assert image.shape == _SLMScene.slm_shape
+        assert image.dtype == np.uint8
+        assert (image == expected_value).all()
+
+    def test_array_is_passed_through_unchanged(self, slm_core):
+        engine = MoenchMDAEngine(slm_core)
+        calls = _record_slm_calls(slm_core)
+        mask = np.zeros(_SLMScene.slm_shape, dtype=np.uint8)
+        mask[10:20, 10:20] = 255
+
+        engine._set_event_slm_image(
+            MDAEvent(slm_image=SLMImage(data=mask, device="SLM"))
+        )
+
+        assert [name for name, _ in calls] == ["setSLMImage"]
+        assert np.array_equal(calls[0][1], mask)
