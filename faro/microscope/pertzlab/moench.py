@@ -68,8 +68,17 @@ class KeepDMDAlive:
         # periodic refresh instead of being forced back to all-on.
         self.dmd.display_livemode()
 
-    def run(self):
+    def run(self, *_):
+        """Start the refresh thread; no-op if it is already running.
+
+        Connected to ``continuousSequenceAcquisitionStarted``, which fires
+        again every time live view re-arms (napari does so on config and
+        exposure changes), so repeated calls must not spawn extra threads.
+        ``*_`` absorbs the signal's camera-label payload.
+        """
         _set_c_numeric_locale()
+        if self.thread is not None and self.thread.is_alive():
+            return
         self._stop_event.clear()
         self.last_wakeup = 0.0
         self.thread = threading.Thread(target=self._run, daemon=True)
@@ -86,10 +95,18 @@ class KeepDMDAlive:
             if self._stop_event.wait(timeout=5):
                 return
 
-    def stop(self):
+    def stop(self, *_):
+        """Stop the refresh thread and reset the SLM; no-op if not running.
+
+        Connected to ``sequenceAcquisitionStopped``, which also fires when the
+        MDA stops a live stream that was never running, so the idle case must
+        leave the SLM alone. ``*_`` absorbs the signal's camera-label payload.
+        """
         _set_c_numeric_locale()
+        if self.thread is None:
+            return
         self._stop_event.set()
-        if self.thread is not None and self.thread.is_alive():
+        if self.thread.is_alive():
             self.thread.join()
         self.thread = None
         self.mmc.setSLMExposure(self.mmc.getSLMDevice(), 100)
@@ -222,7 +239,14 @@ class Moench(PyMMCoreMicroscope):
             affine_matrix=self.affine_calibration_matrix,
         )
         self.wakeup_dmd = KeepDMDAlive(self.mmc, self.dmd)
-        self.wakeup_dmd.run()
+        # The keep-alive refresh only matters while live view is running.
+        # During an MDA the engine drives the DMD on every event and the hold
+        # exposure spans the inter-frame gaps, so tying the thread to the
+        # live-acquisition signals keeps it off for the whole run.
+        self.mmc.events.continuousSequenceAcquisitionStarted.connect(
+            self.wakeup_dmd.run
+        )
+        self.mmc.events.sequenceAcquisitionStopped.connect(self.wakeup_dmd.stop)
 
         self.image_height = self.mmc.getImageHeight()
         self.image_width = self.mmc.getImageWidth()
@@ -263,19 +287,18 @@ class Moench(PyMMCoreMicroscope):
             return
 
         def _do_calibration() -> None:
-            self.wakeup_dmd.stop()
-            try:
-                self.dmd.calibrate(
-                    calibration_channel,
-                    verbose=verbose,
-                    n_points=n_points,
-                    radius=radius,
-                    exposure=exposure,
-                    marker_style=marker_style,
-                    calibration_points_DMD=calibration_points_DMD,
-                )
-            finally:
-                self.wakeup_dmd.run()
+            # The calibration MDA's setup_sequence stops live acquisition,
+            # which stops KeepDMDAlive, and the engine then drives the DMD
+            # itself for every calibration event.
+            self.dmd.calibrate(
+                calibration_channel,
+                verbose=verbose,
+                n_points=n_points,
+                radius=radius,
+                exposure=exposure,
+                marker_style=marker_style,
+                calibration_points_DMD=calibration_points_DMD,
+            )
 
         if not background:
             _do_calibration()
@@ -334,14 +357,18 @@ class Moench(PyMMCoreMicroscope):
 
         The wakeup thread keeps a reference to the SLM device; stopping
         it before ``unloadAllDevices`` avoids the unload racing the
-        thread's next ``displaySLMImage`` call.
+        thread's next ``displaySLMImage`` call. Its live-acquisition
+        connections go first so no late signal touches the SLM during unload.
         """
         wakeup = getattr(self, "wakeup_dmd", None)
         if wakeup is not None:
-            try:
+            with suppress(Exception):
+                self.mmc.events.continuousSequenceAcquisitionStarted.disconnect(
+                    wakeup.run
+                )
+                self.mmc.events.sequenceAcquisitionStopped.disconnect(wakeup.stop)
+            with suppress(Exception):
                 wakeup.stop()
-            except Exception:
-                pass
         super()._teardown_hardware()
 
     def register_engine(self, force: bool = False) -> None:
@@ -693,34 +720,26 @@ class MoenchMDAEngine(MDAEngine):
                 )
 
     def setup_sequence(self, sequence):
-        """Pause KeepDMDAlive for the duration of the MDA.
+        """Stop live acquisition before the MDA starts.
 
-        The engine drives the DMD on every event (stim mask on stim
-        frames, all-on on imaging frames when
-        ``dmd_needs_to_be_waken``), so the 60 s background refresh is
-        redundant during a run and just adds SLM-device contention.
-        Restarted in ``teardown_sequence``.
+        This runs before the first event, so it only ever stops a live
+        preview, never a real hardware sequence. It is not gated on
+        ``isSequenceRunning()``: napari-micromanager can hold a live timer
+        while the stream is already stopped, and that timer restarts live
+        acquisition on the per-frame configSet/exposureChanged signals this
+        engine emits, which then fights every snap. The emitted
+        ``sequenceAcquisitionStopped`` is what clears that timer, and it also
+        stops ``KeepDMDAlive`` for the duration of the run. The Controller
+        stops live too; doing it here also covers calibration and bare
+        ``mmc.mda.run()`` calls.
         """
-        mic = self.microscope
-        if mic is not None:
-            wakeup = getattr(mic, "wakeup_dmd", None)
-            if wakeup is not None:
-                try:
-                    wakeup.stop()
-                except Exception:
-                    self._log.exception("Failed to stop wakeup_dmd before MDA")
+        core = getattr(self, "mmcore", None)
+        if core is not None:
+            try:
+                core.stopSequenceAcquisition()
+            except Exception:
+                self._log.exception("Failed to stop live acquisition before MDA")
         return super().setup_sequence(sequence)
-
-    def teardown_sequence(self, sequence) -> None:
-        super().teardown_sequence(sequence)
-        mic = self.microscope
-        if mic is not None:
-            wakeup = getattr(mic, "wakeup_dmd", None)
-            if wakeup is not None:
-                try:
-                    wakeup.run()
-                except Exception:
-                    self._log.exception("Failed to restart wakeup_dmd after MDA")
 
     def setup_event(self, event: MDAEvent) -> None:
         """Override to wait for devices individually, bypassing TIXYDrive.
