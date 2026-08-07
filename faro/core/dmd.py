@@ -2,7 +2,6 @@ import skimage
 import numpy as np
 import numpy.typing as npt
 import matplotlib.pyplot as plt
-import time
 import scipy
 
 # from .acquisition import acq
@@ -227,6 +226,31 @@ class DMD:
 
         return selected_points
 
+    def _run_events_unsequenced(self, events):
+        """Run *events* as a single MDA with hardware sequencing disabled.
+
+        A separate ``mmc.mda.run`` per event brackets each one with
+        setup/teardown_sequence, which stop and restart ``KeepDMDAlive``; each
+        restart re-displays the all-on live pattern and resets the SLM
+        ExposureTime, so under OverlapMode a spot can end up on a short exposure
+        that blanks before the camera opens. Running every event in one MDA
+        pauses ``KeepDMDAlive`` just once.
+
+        Sequencing must be off: with it on, pymmcore-plus tries to
+        hardware-combine the consecutive SLM events into an ``slm_sequence`` and
+        fails validation (``SLMImage`` is not ``bytes``). With it off, the
+        events still run one at a time within the single MDA.
+        """
+        engine = getattr(self.mmc.mda, "engine", None)
+        prev = getattr(engine, "use_hardware_sequencing", None)
+        if engine is not None:
+            engine.use_hardware_sequencing = False
+        try:
+            self.mmc.mda.run(events)
+        finally:
+            if engine is not None and prev is not None:
+                engine.use_hardware_sequencing = prev
+
     def calibrate(
         self,
         calibration_channel,
@@ -301,9 +325,7 @@ class DMD:
         def _collect_calibration_frame(img: np.ndarray, event: MDAEvent):
             calibration_images.append(img)
 
-        for event in events:
-            self.mmc.mda.run([event])
-            time.sleep(0.1)
+        self._run_events_unsequenced(events)
         self.mmc.mda.events.frameReady.disconnect(_collect_calibration_frame)
         calibration_images = np.array(calibration_images)
 
@@ -396,9 +418,7 @@ class DMD:
             def _collect_test_frame(img: np.ndarray, event: MDAEvent):
                 test_image.append(img)
 
-            for event in events:
-                self.mmc.mda.run([event])
-                time.sleep(0.5)
+            self._run_events_unsequenced(events)
             self.mmc.mda.events.frameReady.disconnect(_collect_test_frame)
             calibration_images = np.array(calibration_images)
             for img in test_image:
