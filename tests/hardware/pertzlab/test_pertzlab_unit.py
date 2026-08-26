@@ -3,9 +3,11 @@
 Lives under ``tests/hardware/pertzlab/`` because its subjects are
 Pertzlab-scope-only: per-microscope power-property mappings (declared
 manually; an unmapped ``PowerChannel`` fails loud rather than silently
-dropping the requested power) and
+dropping the requested power),
 :class:`faro.microscope.pertzlab.moench.MoenchCMMCorePlus`'s
-position-confirmed stage waits and filter-turret verification.
+position-confirmed stage waits and filter-turret verification, and the
+Moench engine's DMD/SLM handling (scalar-image expansion, live-stop,
+keep-alive lifecycle).
 
 The tests use fakes and drive no hardware, but living under
 ``tests/hardware/`` puts them behind the ``--scope`` gate (any test there is
@@ -17,9 +19,15 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
+from useq import MDAEvent, MDASequence
 
+from faro.core._useq_compat import SLMImage
 from faro.core.data_structures import Channel, PowerChannel
+from faro.microscope.pertzlab.moench import KeepDMDAlive, MoenchMDAEngine
+
+from tests.fake_mmc import build_core
 
 
 # ===================================================================
@@ -344,3 +352,136 @@ class TestFilterVerify:
         core.verify_config("TTL_ERK", "mScarlet3")
         assert core.getState_calls == 0
         assert core.setState_calls == []
+
+# ===================================================================
+# DMD/SLM uploads, live-stop, and keep-alive lifecycle
+# ===================================================================
+
+
+class _SLMScene:
+    """Minimal scene declaring a camera and an SLM; never renders."""
+
+    image_height = image_width = 64
+    channels = ("phase-contrast",)
+    slm_name = "SLM"
+    slm_shape = (64, 64)
+
+    def render(self, event):
+        return np.zeros((self.image_height, self.image_width), dtype=np.uint16)
+
+
+@pytest.fixture()
+def slm_core():
+    return build_core(_SLMScene())
+
+
+def _record_slm_calls(core):
+    """Replace the core's two SLM upload paths with recorders."""
+    calls = []
+    core.setSLMImage = lambda label, image: calls.append(("setSLMImage", image))
+    core.setSLMPixelsTo = lambda *args: calls.append(("setSLMPixelsTo", args))
+    return calls
+
+
+class TestScalarSLMImageExpansion:
+    """Every SLM command reaches the core as an array, never as a scalar.
+
+    A scalar all-on/all-off goes out via ``setSLMPixelsTo``, which some DMDs
+    ignore without raising, leaving the last pattern on the mirrors.
+    """
+
+    @pytest.mark.parametrize(
+        ("data", "expected_value"), [(True, 255), (False, 0)], ids=["all-on", "all-off"]
+    )
+    def test_scalar_routed_through_set_slm_image(self, slm_core, data, expected_value):
+        engine = MoenchMDAEngine(slm_core)
+        calls = _record_slm_calls(slm_core)
+
+        engine._set_event_slm_image(
+            MDAEvent(slm_image=SLMImage(data=data, device="SLM"))
+        )
+
+        assert [name for name, _ in calls] == ["setSLMImage"]
+        image = calls[0][1]
+        assert image.shape == _SLMScene.slm_shape
+        assert image.dtype == np.uint8
+        assert (image == expected_value).all()
+
+    def test_array_is_passed_through_unchanged(self, slm_core):
+        engine = MoenchMDAEngine(slm_core)
+        calls = _record_slm_calls(slm_core)
+        mask = np.zeros(_SLMScene.slm_shape, dtype=np.uint8)
+        mask[10:20, 10:20] = 255
+
+        engine._set_event_slm_image(
+            MDAEvent(slm_image=SLMImage(data=mask, device="SLM"))
+        )
+
+        assert [name for name, _ in calls] == ["setSLMImage"]
+        assert np.array_equal(calls[0][1], mask)
+
+
+class TestSetupSequenceStopsLive:
+    """Every MDA stops live acquisition first, whether or not it is running.
+
+    A viewer can keep a live timer armed after the stream itself has stopped,
+    and only the ``sequenceAcquisitionStopped`` signal clears it.
+    """
+
+    def test_stops_live_when_nothing_is_running(self, slm_core):
+        stopped = []
+        slm_core.events.sequenceAcquisitionStopped.connect(
+            lambda *args: stopped.append(args)
+        )
+        engine = MoenchMDAEngine(slm_core)
+
+        assert not slm_core.isSequenceRunning()
+        engine.setup_sequence(MDASequence())
+
+        assert stopped, "sequenceAcquisitionStopped must fire even when idle"
+
+
+class TestKeepDMDAliveLifecycle:
+    """The keep-alive thread runs while live acquisition does, and not longer.
+
+    It refreshes the DMD so the mirrors do not park during live view. An MDA
+    drives the DMD itself, so the thread must be off for the whole run.
+    """
+
+    def _keep_alive(self, core):
+        displays = []
+        dmd = SimpleNamespace(display_livemode=lambda: displays.append(1))
+        return KeepDMDAlive(core, dmd), displays
+
+    def test_repeated_run_does_not_spawn_a_second_thread(self, slm_core):
+        keep_alive, _ = self._keep_alive(slm_core)
+        try:
+            keep_alive.run()
+            first = keep_alive.thread
+            keep_alive.run()
+            assert keep_alive.thread is first
+        finally:
+            keep_alive.stop()
+
+    def test_stop_while_idle_leaves_the_slm_alone(self, slm_core):
+        keep_alive, _ = self._keep_alive(slm_core)
+        displayed = []
+        slm_core.displaySLMImage = lambda *args: displayed.append(args)
+
+        keep_alive.stop()
+
+        assert displayed == []
+
+    def test_live_signals_drive_the_thread(self, slm_core):
+        """Live start runs the thread, live stop stops it."""
+        keep_alive, _ = self._keep_alive(slm_core)
+        slm_core.events.continuousSequenceAcquisitionStarted.connect(keep_alive.run)
+        slm_core.events.sequenceAcquisitionStopped.connect(keep_alive.stop)
+        try:
+            slm_core.events.continuousSequenceAcquisitionStarted.emit("Camera")
+            assert keep_alive.thread is not None
+
+            slm_core.events.sequenceAcquisitionStopped.emit("Camera")
+            assert keep_alive.thread is None
+        finally:
+            keep_alive.stop()

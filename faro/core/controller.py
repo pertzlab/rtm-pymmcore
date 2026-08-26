@@ -734,6 +734,12 @@ class Controller:
         self._n_channels: int = 1
         self._frame_buffers: dict[tuple, list] = {}
 
+        # (t, p) of imaging frames whose channels have all arrived and been
+        # submitted to the pipeline. Written from the frameReady callback,
+        # read by the feed loop's stim gate.
+        self._acquired_frames: set[tuple[int, int]] = set()
+        self._acquired_lock = threading.Lock()
+
         # Continuation state
         self._t_offset: int = 0
         self._time_offset: float = 0.0
@@ -1200,15 +1206,22 @@ class Controller:
         feed loop checks ``handle.cancel_event`` at each iteration so
         ``handle.cancel()`` returns control without a Ctrl-C.
         """
-        # Live mode (continuous sequence acquisition) and MDA both drive the
-        # camera. If live is still running when the MDA's first snapImage
-        # fires, the snap buffer is consumed by the live-poll listener (in
-        # napari-micromanager: _core_link._image_snapped) before the engine
-        # calls getImage, and the engine raises "Camera image buffer read
-        # failed". Stop it unconditionally before MDA starts.
+        # Live mode (continuous sequence acquisition) and the MDA both drive
+        # the camera. A live stream still running when the MDA's first
+        # snapImage fires consumes the snap buffer (napari-micromanager's
+        # _core_link._image_snapped) before the engine calls getImage, and the
+        # engine raises "Camera image buffer read failed".
+        #
+        # This is not gated on isSequenceRunning(): napari-micromanager can
+        # hold a live timer while the stream is already stopped, and that timer
+        # restarts live acquisition on the configSet/exposureChanged signals
+        # the engine emits every frame. stopSequenceAcquisition() emits
+        # sequenceAcquisitionStopped, whose listener clears the timer, so it
+        # has to run even when no stream is currently active.
         mmc = getattr(self._mic, "mmc", None)
-        if mmc is not None and mmc.isSequenceRunning():
-            mmc.stopSequenceAcquisition()
+        if mmc is not None:
+            with contextlib.suppress(Exception):
+                mmc.stopSequenceAcquisition()
 
         self._mic.connect_frame(self._on_frame_ready)
 
@@ -1222,6 +1235,8 @@ class Controller:
         # (the run "sticks" after a few events). A fresh queue per run
         # avoids that entirely.
         self._queue = Queue()
+        with self._acquired_lock:
+            self._acquired_frames.clear()
 
         # Set up event queue for extend_experiment support.
         # _pending_sentinels tracks how many extra batches (from
@@ -1387,7 +1402,30 @@ class Controller:
                 for ev in planned:
                     if ev.metadata.get("img_type") == ImgType.IMG_STIM:
                         if slm is None and self._mic.dmd:
-                            slm = self._build_stim_slm(rtm_event, stim_mode=stim_mode)
+                            # The mask comes from the frame the pipeline is
+                            # asked about: (t-1, p) in "previous" mode, (t, p)
+                            # in "current" mode. The feed loop runs a few
+                            # events ahead of the camera, so wait for that
+                            # frame to arrive before blocking on its mask.
+                            # Otherwise get_stim_mask waits out its whole
+                            # timeout for a frame that has not been shot yet
+                            # and falls through to an all-off mask.
+                            #
+                            # A frame that never arrives cannot have a mask, so
+                            # a timed-out wait skips straight to the all-off
+                            # fallback instead of spending the mask timeout
+                            # over again on a lookup that must fail.
+                            t_src = rtm_event.index.get("t", 0)
+                            if stim_mode == "previous":
+                                t_src -= 1
+                            acquired = self._wait_for_frame_acquired(
+                                t_src, rtm_event.index.get("p", 0), handle
+                            )
+                            if handle.cancel_event.is_set():
+                                break
+                            slm = self._build_stim_slm(
+                                rtm_event, stim_mode=stim_mode, has_mask=acquired
+                            )
                         if slm is not None:
                             ev = ev.model_copy(update={"slm_image": slm})
                     self._put_event(ev)
@@ -1531,6 +1569,9 @@ class Controller:
         if len(buf) >= n_expected:
             frame = np.stack(buf, axis=0)
             del self._frame_buffers[tp]
+            # Releases the feed loop's stim gate for any stim built off (t, p).
+            with self._acquired_lock:
+                self._acquired_frames.add(tp)
             self._analyzer.run(frame, event)
 
     def _abort_mda_from_callback(self, message: str) -> None:
@@ -1551,8 +1592,29 @@ class Controller:
     # Stim helpers
     # ------------------------------------------------------------------
 
+    def _wait_for_frame_acquired(self, t: int, p: int, handle: RunHandle) -> bool:
+        """Block until imaging frame ``(t, p)`` reaches the pipeline.
+
+        Returns ``True`` if the frame arrived, ``False`` if the run was
+        cancelled, a fatal error aborted the MDA, or the wait timed out. The
+        frame is always queued in an earlier feed-loop iteration than the stim
+        that depends on it, so it normally arrives as soon as the engine works
+        through the queue. The timeout only bounds the pathological case where
+        it never arrives at all, so a stalled engine surfaces as the usual
+        stim-mask timeout instead of wedging the feed loop.
+        """
+        deadline = time.monotonic() + self._analyzer._stim_mask_timeout
+        while not handle.cancel_event.is_set() and self._fatal_error is None:
+            with self._acquired_lock:
+                if (t, p) in self._acquired_frames:
+                    return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or handle.cancel_event.wait(min(0.05, remaining)):
+                break
+        return False
+
     def _build_stim_slm(
-        self, rtm_event, *, stim_mode: str = "current"
+        self, rtm_event, *, stim_mode: str = "current", has_mask: bool = True
     ) -> SLMImage | None:
         """Build SLMImage for stimulation via Analyzer's stim-mask API.
 
@@ -1563,6 +1625,10 @@ class Controller:
                 asks for frame ``t-1``'s mask (stim fires before imaging,
                 using the mask from the previous timepoint for the same
                 FOV).
+            has_mask: ``False`` when the source frame is known not to have
+                been acquired, so no mask can exist for it. Skips the lookup
+                and returns the all-off fallback instead of waiting out the
+                stim-mask timeout on a query that cannot succeed.
         """
         fov_index = rtm_event.index.get("p", 0)
         stim_ch = rtm_event.stim_channels[0]
@@ -1581,7 +1647,7 @@ class Controller:
             "timestep": t,
         }
 
-        stim_mask = self._analyzer.get_stim_mask(fov_index, meta)
+        stim_mask = self._analyzer.get_stim_mask(fov_index, meta) if has_mask else None
         if stim_mask is None:
             print("Warning: Stimulation mask unavailable, sending False to SLM.")
             stim_mask = False
@@ -1641,6 +1707,8 @@ class ControllerSimulated(Controller):
 
         if len(buf) >= n_expected:
             del self._frame_buffers[tp]
+            with self._acquired_lock:
+                self._acquired_frames.add(tp)
             fname = meta["fname"]
             t_idx = event.index.get("t", 0)
             p_idx = event.index.get("p", 0)
