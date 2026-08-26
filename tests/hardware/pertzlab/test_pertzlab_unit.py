@@ -1,11 +1,18 @@
 """Pure-Python unit tests for Pertzlab-specific faro code.
 
 Lives under ``tests/hardware/pertzlab/`` because its subjects are
-Pertzlab-scope-only: power-property mappings, ``SKIP_WAIT_DEVICES``,
-filter-turret verification, and the Moench engine's DMD/SLM handling.
+Pertzlab-scope-only: per-microscope power-property mappings (declared
+manually; an unmapped ``PowerChannel`` fails loud rather than silently
+dropping the requested power),
+:class:`faro.microscope.pertzlab.moench.MoenchCMMCorePlus`'s
+position-confirmed stage waits and filter-turret verification, and the
+Moench engine's DMD/SLM handling (scalar-image expansion, live-stop,
+keep-alive lifecycle).
 
-These do **not** require a real scope and are **not** marked
-``@pytest.mark.hardware``; they run in every test session.
+The tests use fakes and drive no hardware, but living under
+``tests/hardware/`` puts them behind the ``--scope`` gate (any test there is
+skipped without ``--scope``/``FARO_SCOPE``), so in practice they run on the
+Moench alongside the real hardware tests.
 """
 
 from __future__ import annotations
@@ -86,99 +93,115 @@ class TestPowerPropertyMapping:
 
 
 # ===================================================================
-# SKIP_WAIT_DEVICES — per-microscope waitForDevice skip list
+# MoenchCMMCorePlus: position-confirmed stage waits
 # ===================================================================
 
 
-class _FakeWaitMMCore:
-    """Minimal mmcore surface for _wait_for_system_excluding_xy tests."""
+class _DuckCore:
+    """Duck-typed self that runs the real MoenchCMMCorePlus wait logic.
 
-    def __init__(self, devices: list[str], xy_stage: str = ""):
+    MoenchCMMCorePlus subclasses the SWIG ``CMMCorePlus``, whose C++ methods
+    can't be monkeypatched and which segfaults if constructed without its
+    real core. So instead we bind the real wait methods onto a plain object
+    and stub the (few) core-boundary methods they call. ``_base_wait_for_device``
+    stands in for the ``super().waitForDevice`` delegation and records the call,
+    letting us assert which devices actually hit the base wait.
+    """
+
+    from faro.microscope.pertzlab.moench import MoenchCMMCorePlus as _M
+
+    SKIP_BUSY_DEVICES = _M.SKIP_BUSY_DEVICES
+    XY_TOLERANCE_UM = _M.XY_TOLERANCE_UM
+    Z_TOLERANCE_UM = _M.Z_TOLERANCE_UM
+    POSITION_CONFIRM_MAX_S = 0.5
+    POSITION_CONFIRM_POLL_S = 0.0
+
+    # the methods under test, bound to this duck
+    waitForDevice = _M.waitForDevice
+    waitForSystem = _M.waitForSystem
+    _is_managed_stage = _M._is_managed_stage
+    _confirm_xy = _M._confirm_xy
+    _confirm_z = _M._confirm_z
+
+    def __init__(self, devices, xy="TIXYDrive", z="TIZDrive",
+                 xy_pos=(0.0, 0.0), z_pos=0.0):
         self._devices = devices
-        self._xy_stage = xy_stage
-        self.wait_calls: list[str] = []
+        self._xy = xy
+        self._z = z
+        self._xy_pos = xy_pos
+        self._z_pos = z_pos
+        self._xy_targets = {}
+        self._z_targets = {}
+        self._pending_moves = set()
+        self.base_waits = []
 
+    # --- core boundary the wait logic calls ---
     def getLoadedDevices(self):
         return self._devices
 
     def getXYStageDevice(self):
-        return self._xy_stage
+        return self._xy
 
-    def waitForDevice(self, dev: str):
-        self.wait_calls.append(dev)
+    def getFocusDevice(self):
+        return self._z
 
-    def getXYPosition(self):
-        return (0.0, 0.0)
+    def getXYPosition(self, *a):
+        return self._xy_pos
+
+    def getPosition(self, *a):
+        return self._z_pos
+
+    def _base_wait_for_device(self, label):
+        self.base_waits.append(label)
 
 
-class _FakeMoench:
-    """Weakref-able stand-in for Moench carrying SKIP_WAIT_DEVICES."""
+class TestMoenchCorePositionConfirm:
+    """MoenchCMMCorePlus confirms stages by position and skips the stuck DMD.
 
-    def __init__(self, skip: tuple[str, ...]):
-        self.SKIP_WAIT_DEVICES = skip
-
-
-class TestSkipWaitDevices:
-    """MoenchMDAEngine honors the microscope's SKIP_WAIT_DEVICES tuple.
-
-    Regression guard against the 5 s-per-event Mosaic3 stuck-Busy wait
-    (TODO.md #1): devices listed here must never hit waitForDevice().
+    The stuck-Busy devices (Mosaic3 DMD, TIXY/TIZDrive) must never hit the
+    base waitForDevice, and a commanded stage move must be confirmed by
+    reading the stage position.
     """
 
-    def _make_engine(self, mmc, mic):
-        import weakref
+    def test_dmd_busy_skipped_others_waited(self):
+        core = _DuckCore(["Core", "Camera", "Shutter", "Mosaic3", "TIXYDrive"])
+        core.waitForSystem()
+        assert "Mosaic3" not in core.base_waits, "DMD Busy must be skipped"
+        assert "Core" not in core.base_waits, "Core is always skipped"
+        assert "TIXYDrive" not in core.base_waits, "stage handled by position"
+        assert "Camera" in core.base_waits
+        assert "Shutter" in core.base_waits
 
-        from faro.microscope.pertzlab.moench import MoenchMDAEngine
-
-        # Bypass MDAEngine.__init__ — the base class wants a real
-        # CMMCorePlus, but this test only exercises the skip-filter
-        # logic which reads self.mmcore and self.microscope.
-        engine = MoenchMDAEngine.__new__(MoenchMDAEngine)
-        engine._mmcore_ref = weakref.ref(mmc)
-        engine._microscope_ref = weakref.ref(mic)
-        return engine
-
-    def test_skip_devices_bypass_wait(self):
-        from useq import MDAEvent
-
-        mmc = _FakeWaitMMCore(
-            devices=["Core", "Camera", "Shutter", "Mosaic3", "XYStage"],
-            xy_stage="XYStage",
+    def test_commanded_stage_confirmed_by_position(self):
+        core = _DuckCore(
+            ["Core", "TIXYDrive", "TIZDrive"], xy_pos=(100.0, 50.0), z_pos=10.0
         )
-        mic = _FakeMoench(skip=("Mosaic3",))
-        engine = self._make_engine(mmc, mic)
+        core._xy_targets["TIXYDrive"] = (100.0, 50.0)
+        core._z_targets["TIZDrive"] = 10.0
+        core._pending_moves.update({"TIXYDrive", "TIZDrive"})
+        core.waitForSystem()
+        assert "TIXYDrive" not in core.base_waits
+        assert "TIZDrive" not in core.base_waits
+        # a pending move is one-shot: cleared once confirmed
+        assert not core._pending_moves
 
-        engine._wait_for_system_excluding_xy(MDAEvent())
+    def test_stage_without_pending_move_not_waited(self):
+        # No move commanded -> the stuck Busy() is never consulted.
+        core = _DuckCore(["Core", "TIXYDrive", "TIZDrive"])
+        core.waitForSystem()
+        assert "TIXYDrive" not in core.base_waits
+        assert "TIZDrive" not in core.base_waits
 
-        assert "Mosaic3" not in mmc.wait_calls, "Mosaic3 should be skipped"
-        assert "XYStage" not in mmc.wait_calls, "xy_stage handled separately"
-        assert "Core" not in mmc.wait_calls, "Core is always skipped"
-        assert "Camera" in mmc.wait_calls
-        assert "Shutter" in mmc.wait_calls
-
-    def test_missing_attribute_is_noop(self):
-        """Microscopes without SKIP_WAIT_DEVICES fall through to the default."""
-        from useq import MDAEvent
-
-        mmc = _FakeWaitMMCore(
-            devices=["Core", "Camera", "Mosaic3"],
-            xy_stage="",
-        )
-
-        class _BareMic:
-            pass
-
-        engine = self._make_engine(mmc, _BareMic())
-        engine._wait_for_system_excluding_xy(MDAEvent())
-
-        # Without SKIP_WAIT_DEVICES, Mosaic3 is waited on as before.
-        assert "Mosaic3" in mmc.wait_calls
-        assert "Camera" in mmc.wait_calls
+    def test_nonstage_device_delegates_to_base(self):
+        core = _DuckCore(["Core", "Camera"])
+        core.waitForDevice("Camera")
+        assert core.base_waits == ["Camera"]
 
 
 # ===================================================================
 # Filter-turret verify / force-move (NikonTI "Already at position" bug)
 # ===================================================================
+
 
 class _Setting:
     def __init__(self, dev, prop, val):
@@ -205,13 +228,27 @@ class _Config:
         return self._s[i]
 
 
-class _FakeFilterMMC:
-    """Minimal mmcore surface for ``_verify_filter_block``.
+class _DuckFilterCore:
+    """Duck-typed self that runs the real MoenchCMMCorePlus filter-verify logic.
 
-    ``getState`` returns a *scripted* sequence so the test controls exactly
-    what the read-back sees (decoupled from set* calls), which is what lets us
-    assert the engine's control flow precisely.
+    Binds the real target-extraction and verify methods onto a plain object and
+    stubs the core boundary they call. ``getState`` returns a scripted sequence
+    so the test controls exactly what the read-back sees, decoupled from the
+    set* calls, which is what lets us assert the control flow precisely. The
+    force-move calls (``setState``) are recorders here, so the real verify code
+    drives them without needing a live device.
     """
+
+    from faro.microscope.pertzlab.moench import MoenchCMMCorePlus as _M
+
+    FILTER_VERIFY_DEVICE = _M.FILTER_VERIFY_DEVICE
+    FILTER_VERIFY_PROPERTY = _M.FILTER_VERIFY_PROPERTY
+    FILTER_VERIFY_MAX_CORRECTIONS = _M.FILTER_VERIFY_MAX_CORRECTIONS
+    FILTER_VERIFY_RAISE_ON_FAILURE = _M.FILTER_VERIFY_RAISE_ON_FAILURE
+
+    # the methods under test, bound to this duck
+    _filter_target_for_config = _M._filter_target_for_config
+    _verify_filter_reached = _M._verify_filter_reached
 
     DEVICE = "TIFilterBlock1"
     TARGET_LABEL = "cube_T"
@@ -223,10 +260,17 @@ class _FakeFilterMMC:
         self._stuck = self._reads[-1] if self._reads else 0
         self._loaded = [self.DEVICE] if loaded else ["Camera"]
         self._config_has_filter = config_has_filter
+        self._verifying_filter = False
         self.setState_calls: list[int] = []
-        self.setStateLabel_calls: list[str] = []
         self.getState_calls = 0
 
+    # --- the override body, minus super() (super is exercised on hardware) ---
+    def verify_config(self, group, config):
+        target = self._filter_target_for_config(group, config)
+        if target is not None:
+            self._verify_filter_reached(target)
+
+    # --- core boundary the verify logic calls ---
     def getLoadedDevices(self):
         return self._loaded
 
@@ -253,97 +297,61 @@ class _FakeFilterMMC:
     def setState(self, device, n):
         self.setState_calls.append(n)
 
-    def setStateLabel(self, device, label):
-        self.setStateLabel_calls.append(label)
 
-
-class _FilterMic:
-    FILTER_VERIFY_DEVICE = "TIFilterBlock1"
-    FILTER_VERIFY_PROPERTY = "Label"
-    FILTER_VERIFY_MAX_CORRECTIONS = 3
-    FILTER_VERIFY_RAISE_ON_FAILURE = False
-
-
-class TestFilterBlockVerify:
-    """MoenchMDAEngine confirms the cube turret landed and force-moves on a miss.
+class TestFilterVerify:
+    """MoenchCMMCorePlus confirms the cube turret landed and force-moves on a miss.
 
     Guards the silent "Already at position; not moving" skip in the closed
-    NikonTI adapter (see ``nikonti-re/FINDINGS.md``).
+    NikonTI adapter. The verify lives on the core, so interactive napari
+    channel changes are covered too; the force-move goes neighbour -> target
+    by state.
     """
-
-    def _make_engine(self, mmc, mic):
-        import weakref
-
-        from faro.microscope.pertzlab.moench import MoenchMDAEngine
-
-        engine = MoenchMDAEngine.__new__(MoenchMDAEngine)
-        engine._mmcore_ref = weakref.ref(mmc)
-        engine._microscope_ref = weakref.ref(mic)
-        return engine
 
     def test_fast_path_no_extra_move(self):
         # Turret already reads the target -> no rotation, no correction.
-        mmc = _FakeFilterMMC(read_states=[_FakeFilterMMC.TARGET_STATE])
-        mic = _FilterMic()  # keep a strong ref; engine holds it weakly
-        engine = self._make_engine(mmc, mic)
-
-        engine._verify_filter_block("TTL_ERK", "mScarlet3")
-
-        assert mmc.setState_calls == []
-        assert mmc.setStateLabel_calls == []
+        core = _DuckFilterCore(read_states=[_DuckFilterCore.TARGET_STATE])
+        core.verify_config("TTL_ERK", "mScarlet3")
+        assert core.setState_calls == []
 
     def test_recovers_on_detected_mismatch(self):
         # First read wrong (suppressed move), recovers after one force-move.
-        mmc = _FakeFilterMMC(read_states=[0, _FakeFilterMMC.TARGET_STATE])
-        mic = _FilterMic()  # keep a strong ref; engine holds it weakly
-        engine = self._make_engine(mmc, mic)
-
-        engine._verify_filter_block("TTL_ERK", "mScarlet3")
-
-        # neighbour = (2 + 1) % 6 = 3, then the real target label.
-        assert mmc.setState_calls == [3]
-        assert mmc.setStateLabel_calls == ["cube_T"]
+        core = _DuckFilterCore(read_states=[0, _DuckFilterCore.TARGET_STATE])
+        core.verify_config("TTL_ERK", "mScarlet3")
+        # neighbour = (2 + 1) % 6 = 3, then back to the target state 2.
+        assert core.setState_calls == [3, 2]
 
     def test_persistent_failure_logs_but_does_not_raise(self):
         # Always wrong: exhaust corrections, log loudly, do not raise (default).
-        mmc = _FakeFilterMMC(read_states=[0])  # stuck at 0 forever
-        mic = _FilterMic()  # keep a strong ref; engine holds it weakly
-        engine = self._make_engine(mmc, mic)
-
-        engine._verify_filter_block("TTL_ERK", "mScarlet3")
-
-        assert len(mmc.setStateLabel_calls) == 3  # MAX_CORRECTIONS attempts
-        assert mmc.setState_calls == [3, 3, 3]
+        core = _DuckFilterCore(read_states=[0])  # stuck at 0 forever
+        core.verify_config("TTL_ERK", "mScarlet3")
+        # neighbour -> target, MAX_CORRECTIONS (3) times.
+        assert core.setState_calls == [3, 2, 3, 2, 3, 2]
 
     def test_persistent_failure_raises_when_flagged(self):
-        mmc = _FakeFilterMMC(read_states=[0])
-        mic = _FilterMic()
-        mic.FILTER_VERIFY_RAISE_ON_FAILURE = True
-        engine = self._make_engine(mmc, mic)
-
+        core = _DuckFilterCore(read_states=[0])
+        core.FILTER_VERIFY_RAISE_ON_FAILURE = True
         with pytest.raises(RuntimeError, match="WRONG cube"):
-            engine._verify_filter_block("TTL_ERK", "mScarlet3")
+            core.verify_config("TTL_ERK", "mScarlet3")
+
+    def test_interactive_setstatelabel_path_verifies(self):
+        # The direct state-label path (napari's interactive change) recovers too.
+        core = _DuckFilterCore(read_states=[0, _DuckFilterCore.TARGET_STATE])
+        target = core.getStateFromLabel(core.DEVICE, core.TARGET_LABEL)
+        core._verify_filter_reached(target)
+        assert core.setState_calls == [3, 2]
 
     def test_channel_without_turret_is_noop(self):
         # A channel whose preset doesn't drive the turret is left alone.
-        mmc = _FakeFilterMMC(read_states=[0], config_has_filter=False)
-        mic = _FilterMic()  # keep a strong ref; engine holds it weakly
-        engine = self._make_engine(mmc, mic)
-
-        engine._verify_filter_block("Binning", "2x2")
-
-        assert mmc.getState_calls == 0
-        assert mmc.setStateLabel_calls == []
+        core = _DuckFilterCore(read_states=[0], config_has_filter=False)
+        core.verify_config("Binning", "2x2")
+        assert core.getState_calls == 0
+        assert core.setState_calls == []
 
     def test_device_not_loaded_is_noop(self):
-        mmc = _FakeFilterMMC(read_states=[0], loaded=False)
-        mic = _FilterMic()  # keep a strong ref; engine holds it weakly
-        engine = self._make_engine(mmc, mic)
-
-        engine._verify_filter_block("TTL_ERK", "mScarlet3")
-
-        assert mmc.getState_calls == 0
-        assert mmc.setStateLabel_calls == []
+        core = _DuckFilterCore(read_states=[0], loaded=False)
+        core.verify_config("TTL_ERK", "mScarlet3")
+        assert core.getState_calls == 0
+        assert core.setState_calls == []
 
 # ===================================================================
 # DMD/SLM uploads, live-stop, and keep-alive lifecycle
