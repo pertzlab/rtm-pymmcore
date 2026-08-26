@@ -16,7 +16,7 @@ import threading
 import locale
 import logging
 from pymmcore_plus.core._sequencing import SequencedEvent, iter_sequenced_events
-from contextlib import suppress
+from contextlib import nullcontext, suppress
 
 
 os.environ["PYMM_PARALLEL_INIT"] = "0"
@@ -48,6 +48,360 @@ def _pump_qt_events() -> None:
     app = QCoreApplication.instance()
     if app is not None:
         app.processEvents()
+
+
+class MoenchCMMCorePlus(pymmcore_plus.CMMCorePlus):
+    """CMMCorePlus for the Moench (Nikon Ti): confirm stage moves and cube changes.
+
+    On the Nikon Ti the TIXYDrive/TIZDrive ``Busy()`` flag stays true for
+    several seconds after every move, because Micro-Manager is never told the
+    move finished, and the Mosaic3 DMD's ``Busy()`` is stuck the same way. So
+    ``waitForDevice``/``waitForSystem`` wait ~5 s per move for nothing. The
+    move itself finishes in under a second and the stage's reported position is
+    always current, so this core waits for the XY and focus stages by reading
+    their position until it reaches the commanded target, and does not wait on
+    :attr:`SKIP_BUSY_DEVICES` at all.
+
+    ``set(Relative)(XY/Z)Position`` stores the commanded target and marks that
+    stage as "moving". ``waitForDevice``/``waitForSystem`` then wait for a
+    moving stage by reading its position, and clear the mark once it arrives. A
+    stage that was not commanded to move returns at once, because it is not
+    moving and its stuck ``Busy()`` is never read. Any other device uses the
+    normal wait.
+
+    The same adapter silently skips a filter-cube (turret) change when its
+    cached position already equals the target, so a genuinely needed change can
+    be dropped and a frame acquired through the wrong cube. ``setConfig`` /
+    ``setStateLabel`` / ``setState`` read the turret back after the change and,
+    on a mismatch, force a real move by going to a neighbour position and back;
+    the success path is a single read with no extra rotation, and the forced
+    move fires only on a detected miss (capped at
+    :attr:`FILTER_VERIFY_MAX_CORRECTIONS`).
+
+    Sharing this core with napari-micromanager gives its interactive moves and
+    channel changes the same handling, and the base engine's plain
+    ``waitForSystem()`` / ``setConfig()`` calls keep :class:`MoenchMDAEngine`
+    correct. napari-micromanager adopts the first ``CMMCorePlus`` ever
+    constructed as its singleton, so it picks up this core automatically as
+    long as :class:`Moench` is created before any napari-micromanager widget
+    constructs a core of its own.
+    """
+
+    #: Devices with a stuck Busy() and no position to check. Never wait on them.
+    SKIP_BUSY_DEVICES: frozenset = frozenset({"Mosaic3"})
+    #: How close (µm) counts as "arrived", and how long (s) to wait before giving up.
+    XY_TOLERANCE_UM: float = 1.0
+    Z_TOLERANCE_UM: float = 0.5
+    POSITION_CONFIRM_MAX_S: float = 5.0
+    POSITION_CONFIRM_POLL_S: float = 0.05
+
+    #: Filter-turret device to verify after a channel/state change (None = off),
+    #: the property its preset sets, how many forced moves to try, and whether a
+    #: persistent miss raises (default: log and continue).
+    FILTER_VERIFY_DEVICE: str | None = "TIFilterBlock1"
+    FILTER_VERIFY_PROPERTY: str = "Label"
+    FILTER_VERIFY_MAX_CORRECTIONS: int = 3
+    FILTER_VERIFY_RAISE_ON_FAILURE: bool = False
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._xy_targets = {}  # device label -> (x, y)
+        self._z_targets = {}  # device label -> z
+        self._pending_moves = set()  # stages commanded to move, not yet arrived
+        self._verifying_filter = False  # guards the verify's own turret moves
+
+    def _is_managed_stage(self, label: str) -> bool:
+        return bool(label) and label in (
+            self.getXYStageDevice(),
+            self.getFocusDevice(),
+        )
+
+    # Record the commanded target (both the (x, y) and (label, x, y) forms).
+    def setXYPosition(self, *args) -> None:  # noqa: N802
+        if len(args) == 2:
+            label, x, y = "", args[0], args[1]
+        elif len(args) == 3:
+            label, x, y = args
+        else:
+            return super().setXYPosition(*args)
+        dev = label or self.getXYStageDevice()
+        if dev:
+            self._xy_targets[dev] = (float(x), float(y))
+            self._pending_moves.add(dev)
+        return super().setXYPosition(*args)
+
+    def setRelativeXYPosition(self, *args) -> None:  # noqa: N802
+        dev = None
+        try:
+            if len(args) == 2:
+                label, dx, dy = "", args[0], args[1]
+            elif len(args) == 3:
+                label, dx, dy = args
+            else:
+                raise ValueError
+            dev = label or self.getXYStageDevice()
+            cur = self.getXYPosition(dev) if label else self.getXYPosition()
+            if dev:
+                self._xy_targets[dev] = (cur[0] + float(dx), cur[1] + float(dy))
+                self._pending_moves.add(dev)
+        except Exception:
+            if dev:
+                self._pending_moves.discard(dev)  # target unknown -> don't wait
+        return super().setRelativeXYPosition(*args)
+
+    def setZPosition(self, val) -> None:  # noqa: N802
+        dev = self.getFocusDevice()
+        if dev:
+            self._z_targets[dev] = float(val)
+            self._pending_moves.add(dev)
+        return super().setZPosition(val)
+
+    def setPosition(self, *args) -> None:  # noqa: N802
+        if len(args) == 1:
+            label, z = "", args[0]
+        elif len(args) == 2:
+            label, z = args
+        else:
+            return super().setPosition(*args)
+        dev = label or self.getFocusDevice()
+        if dev:
+            self._z_targets[dev] = float(z)
+            self._pending_moves.add(dev)
+        return super().setPosition(*args)
+
+    def setRelativePosition(self, *args) -> None:  # noqa: N802
+        dev = None
+        try:
+            if len(args) == 1:
+                label, dz = "", args[0]
+            elif len(args) == 2:
+                label, dz = args
+            else:
+                raise ValueError
+            dev = label or self.getFocusDevice()
+            cur = self.getPosition(dev) if label else self.getPosition()
+            if dev:
+                self._z_targets[dev] = cur + float(dz)
+                self._pending_moves.add(dev)
+        except Exception:
+            if dev:
+                self._pending_moves.discard(dev)
+        return super().setRelativePosition(*args)
+
+    # Wait for a moving stage by reading its position.
+    def waitForDevice(self, label: str) -> None:  # noqa: N802
+        if label in self.SKIP_BUSY_DEVICES:
+            return  # stuck Busy() and no position to check -> skip
+        if self._is_managed_stage(label):
+            if label not in self._pending_moves:
+                return  # not commanded to move, so nothing to wait for
+            self._pending_moves.discard(label)
+            if label in self._xy_targets:
+                return self._confirm_xy(label, self._xy_targets[label])
+            if label in self._z_targets:
+                return self._confirm_z(label, self._z_targets[label])
+            return
+        return self._base_wait_for_device(label)
+
+    def _base_wait_for_device(self, label: str) -> None:
+        super().waitForDevice(label)
+
+    def waitForSystem(self) -> None:  # noqa: N802
+        # The base waitForSystem() calls C++ waitForDevice directly, which
+        # skips this class's waitForDevice override; loop over the devices here
+        # so each one goes through the position check and skip logic above.
+        for dev in self.getLoadedDevices():
+            if dev == "Core":
+                continue
+            try:
+                self.waitForDevice(dev)
+            except RuntimeError as e:
+                if "timed out" in str(e):
+                    logger.warning(
+                        "waitForDevice(%s) timed out, continuing: %s", dev, e
+                    )
+                else:
+                    raise
+
+    def _confirm_xy(self, dev, target) -> None:
+        tx, ty = target
+        use_default = dev == self.getXYStageDevice()
+        deadline = time.perf_counter() + self.POSITION_CONFIRM_MAX_S
+        while time.perf_counter() < deadline:
+            try:
+                x, y = self.getXYPosition() if use_default else self.getXYPosition(dev)
+            except Exception:
+                return  # can't read position -> best-effort, don't hang
+            if abs(x - tx) < self.XY_TOLERANCE_UM and abs(y - ty) < self.XY_TOLERANCE_UM:
+                return
+            time.sleep(self.POSITION_CONFIRM_POLL_S)
+        logger.warning(
+            "%s not within %.3g um of target %s after %.1f s",
+            dev, self.XY_TOLERANCE_UM, target, self.POSITION_CONFIRM_MAX_S,
+        )
+
+    def _confirm_z(self, dev, target) -> None:
+        deadline = time.perf_counter() + self.POSITION_CONFIRM_MAX_S
+        while time.perf_counter() < deadline:
+            try:
+                z = self.getPosition(dev)
+            except Exception:
+                return
+            if abs(z - target) < self.Z_TOLERANCE_UM:
+                return
+            time.sleep(self.POSITION_CONFIRM_POLL_S)
+        logger.warning(
+            "%s not within %.3g um of target %.3f after %.1f s",
+            dev, self.Z_TOLERANCE_UM, target, self.POSITION_CONFIRM_MAX_S,
+        )
+
+    # Verify the filter turret actually reached the requested cube after a
+    # channel/state change (the ``_verifying_filter`` guard keeps the verify's
+    # own turret moves from triggering another verify).
+    def setConfig(self, groupName, configName) -> None:  # noqa: N802, N803
+        super().setConfig(groupName, configName)
+        if not self._verifying_filter:
+            target = self._filter_target_for_config(groupName, configName)
+            if target is not None:
+                self._verify_filter_reached(target)
+
+    def setStateLabel(self, stateDeviceLabel, stateLabel) -> None:  # noqa: N802, N803
+        super().setStateLabel(stateDeviceLabel, stateLabel)
+        if not self._verifying_filter and stateDeviceLabel == self.FILTER_VERIFY_DEVICE:
+            try:
+                target = self.getStateFromLabel(stateDeviceLabel, stateLabel)
+            except Exception:
+                return
+            self._verify_filter_reached(target)
+
+    def setState(self, stateDeviceLabel, state) -> None:  # noqa: N802, N803
+        super().setState(stateDeviceLabel, state)
+        if not self._verifying_filter and stateDeviceLabel == self.FILTER_VERIFY_DEVICE:
+            self._verify_filter_reached(int(state))
+
+    def _filter_target_for_config(self, group, config):
+        """State the filter device should reach for this preset, or None.
+
+        None when filter verification is off, the device is not loaded, or the
+        preset does not drive the filter device.
+        """
+        device = self.FILTER_VERIFY_DEVICE
+        if not device or device not in self.getLoadedDevices():
+            return None
+        try:
+            cfg = self.getConfigData(group, config)
+        except Exception:
+            return None
+        for i in range(cfg.size()):
+            s = cfg.getSetting(i)
+            if (
+                s.getDeviceLabel() == device
+                and s.getPropertyName() == self.FILTER_VERIFY_PROPERTY
+            ):
+                try:
+                    return self.getStateFromLabel(device, s.getPropertyValue())
+                except Exception:
+                    return None
+        return None
+
+    def _verify_filter_reached(self, target_state) -> None:
+        """Confirm the Nikon Ti cube turret reached ``target_state``; on a
+        detected mismatch, force a physical move and re-check.
+
+        Why: the closed NikonTI adapter decides whether to move the turret by
+        comparing the request against an internal, callback-fed position cache,
+        and silently skips the move when they are equal ("Already at position;
+        not moving", no exception, no error log). A missed position callback
+        desyncs that cache, so a needed cube change can be dropped and the frame
+        acquired through the wrong cube. Unlike XY/Z, the turret has no
+        independent re-read or safety timeout in the adapter, so one is added
+        here.
+
+        Strategy (cheap by default; an extra rotation only on a miss):
+          1. read the turret back; if it equals the target, return (the common
+             case, one fast read, no extra movement);
+          2. on mismatch, force a real move by first going to a neighbour
+             position (which breaks the ``target == cache`` equality the adapter
+             uses to suppress the move) and then to the target, re-checking each
+             time, up to :attr:`FILTER_VERIFY_MAX_CORRECTIONS`;
+          3. if it still will not land, log loudly (and, when
+             :attr:`FILTER_VERIFY_RAISE_ON_FAILURE`, raise) so a long run
+             surfaces the failure instead of silently collecting wrong-cube data.
+
+        The read-back goes through the same cache the adapter compares against,
+        so it cannot catch the rarer case where the cache wrongly equals the
+        target. Forcing the move unconditionally would catch that case too,
+        but it doubles turret wear on every change, which this rig's ~15 s
+        imaging cadence cannot afford.
+        """
+        device = self.FILTER_VERIFY_DEVICE
+        if target_state is None or not device:
+            return
+        max_corrections = int(self.FILTER_VERIFY_MAX_CORRECTIONS)
+
+        failed_state = None
+        self._verifying_filter = True
+        try:
+            if device not in self.getLoadedDevices():
+                return
+            n_states = self.getNumberOfStates(device)
+
+            def _settled_state():
+                # The filter turret's Busy() is reliable, so the plain wait
+                # works and respects the configured FilterBlock Delay.
+                try:
+                    self.waitForDevice(device)
+                except RuntimeError:
+                    pass
+                return self.getState(device)
+
+            if _settled_state() == target_state:
+                return  # fast path: turret is where we asked, no extra movement
+
+            neighbour = (target_state + 1) % n_states
+            if neighbour != target_state:  # guard a 1-position device
+                for attempt in range(1, max_corrections + 1):
+                    logger.warning(
+                        "Filter turret missed state %d; forcing move (%d/%d).",
+                        target_state, attempt, max_corrections,
+                    )
+                    print(
+                        f"[WARN] Filter turret missed state {target_state}; "
+                        f"forcing move ({attempt}/{max_corrections})."
+                    )
+                    # Go to a different cube first so target != cached position;
+                    # this defeats the adapter's "Already at position" skip.
+                    self.setState(device, neighbour)
+                    try:
+                        self.waitForDevice(device)
+                    except RuntimeError:
+                        pass
+                    self.setState(device, target_state)
+                    if _settled_state() == target_state:
+                        logger.info(
+                            "Filter turret recovered to state %d after %d "
+                            "attempt(s).", target_state, attempt,
+                        )
+                        return
+
+            failed_state = _settled_state()
+        except Exception as e:  # never let verification crash an acquisition
+            logger.warning("Filter-turret verify errored (ignored). %s", e)
+            return
+        finally:
+            self._verifying_filter = False
+
+        # Persistent mismatch: surface loudly so a long run can't silently
+        # collect wrong-cube data.
+        msg = (
+            f"Filter turret FAILED to reach state {target_state} after "
+            f"{max_corrections} forced moves (stuck at state {failed_state}); "
+            f"frames may be acquired through the WRONG cube."
+        )
+        logger.error(msg)
+        print(f"[ERROR] {msg}")
+        if self.FILTER_VERIFY_RAISE_ON_FAILURE:
+            raise RuntimeError(msg)
 
 
 class KeepDMDAlive:
@@ -104,7 +458,7 @@ class Moench(PyMMCoreMicroscope):
     DMD_NEEDS_TO_BE_WAKEN = True
     DMD_CHANNEL_GROUP = "TTL_ERK"
 
-    # --- Mosaic3 DMD hold / settle (see nikonti-re/mosaic3/FINDINGS.md) ---
+    # --- Mosaic3 DMD hold / settle ---
     # The Mosaic3 "SLM exposure" is the Andor ``ExposureTime`` feature: after a
     # ``displaySLMImage`` ("Expose") the micromirrors hold the displayed pattern
     # for exactly that long and then *park*. The Mosaic3 has no indefinite
@@ -115,7 +469,7 @@ class Moench(PyMMCoreMicroscope):
     # frames delivers no extra dose and the stim dose is unchanged. Without this
     # a stale short ``ExposureTime`` left by another path (KeepDMDAlive.stop()
     # -> 100 ms, calibration -> 25 ms) parks the mirrors mid-frame and the tail
-    # of any longer frame comes back dark -- the ">200 ms not displayed" symptom.
+    # of any longer frame comes back dark.
     #
     # ``DMD_HOLD_EXPOSURE_MS`` is forced onto the SLM for every displayed pattern
     # (stim mask or all-on) by ``MoenchMDAEngine._set_event_slm_image``.
@@ -135,21 +489,22 @@ class Moench(PyMMCoreMicroscope):
     #
     # Derived from TiMoench.cfg: each preset sets NIDAQDO-Dev1/port0 State, and
     # the port's state labels give the color -> Spectra <Color>_Level:
+    #   State  2 Blue        -> Blue_Level
     #   State  4 Cyan        -> Cyan_Level
+    #   State  8 Teal        -> Teal_Level
     #   State 16 GreenYellow -> Green_Level
     #   State 32 Red         -> Red_Level
-    #   State  8 Teal        -> Teal_Level
     POWER_PROPERTIES = {
-        "CyanStim": ("LED", "Cyan_Level"),   # state 4  (pre-existing, known good)
-        "mScarlet3": ("LED", "Green_Level"),  # state 16, confirmed on scope 2026-06-22
-        "miRFP": ("LED", "Red_Level"),        # state 32, inferred from cfg labels
-        "mCitrine": ("LED", "Teal_Level"),
-        "mRuby2": ("LED", "Green_Level"),
-        "mTurquoise": ("LED", "Blue_Level"),
-        "mNeongreen": ("LED", "Cyan_Level")      # state 8,  inferred from cfg labels
+        "CyanStim": ("LED", "Cyan_Level"),    # state 4
+        "mScarlet3": ("LED", "Green_Level"),  # state 16
+        "miRFP": ("LED", "Red_Level"),        # state 32
+        "mCitrine": ("LED", "Teal_Level"),    # state 8
+        "mRuby2": ("LED", "Green_Level"),     # state 16
+        "mTurquoise": ("LED", "Blue_Level"),  # state 2
+        "mNeongreen": ("LED", "Cyan_Level"),  # state 4
     }
     BINNING = "2x2"
-    # ROI applied as-is after binning — no centering recomputation.
+    # ROI applied as-is after binning, no centering recomputation.
     # Defaults below are for Prime BSI under 2x2 binning (1024 binned px wide).
     ROI_X = 0
     ROI_Y = 30
@@ -157,38 +512,65 @@ class Moench(PyMMCoreMicroscope):
     ROI_HEIGHT = 792
     SET_ROI_REQUIRED = True
 
-    # Devices whose Busy() flag is unreliable — waitForDevice on these
-    # eats the full 5 s MMCore timeout on every MDA event. Mosaic3 (DMD)
-    # has the same stuck-Busy pathology as TIXYDrive; displaySLMImage()
-    # commits the pattern synchronously before we reach the wait, so
-    # skipping the poll is safe. See TODO.md #1.
-    SKIP_WAIT_DEVICES: tuple[str, ...] = ("Mosaic3",)
+    # ``Status`` values of the PFS device that mean "the PFS is driving Z".
+    # Everything else ('Within range of focus search', 'Out of focus search
+    # range', ...) means it is not engaged. See read_pfs_engaged().
+    PFS_ENGAGED_STATUSES: tuple[str, ...] = ("Locked in focus", "Focusing")
 
-    # --- Nikon Ti filter-turret reliability (see nikonti-re/FINDINGS.md) ---
-    # The closed NikonTI adapter decides whether to move the cube turret by
-    # comparing the requested position against an internal, callback-maintained
-    # position cache, and *silently skips the move* when they're equal
-    # ("Already at position; not moving" -- no error). A missed/mis-filtered
-    # position callback (worse under MM api75's reworked callback path) desyncs
-    # that cache, so a genuinely-needed cube change can be dropped with no
-    # exception and the frame is acquired through the WRONG cube.
+    # ``Status`` values that indicate the PFS genuinely CANNOT hold focus:
+    # a real fault when the run relies on the PFS. 'Out of focus search
+    # range' / 'Within range of focus search' are deliberately NOT here:
+    # those are normal when the PFS is simply switched off. A loss of lock is
+    # detected separately, as a transition out of PFS_ENGAGED_STATUSES while
+    # the PFS was engaged at the start of the run (see MoenchMDAEngine).
     #
-    # MoenchMDAEngine verifies the turret actually reached the commanded cube
-    # after a channel change and, on a detected mismatch, forces a real move.
-    # The success path is a single fast read (no extra rotation); the extra
-    # physical move fires only on a detected miss -- safe for ~15 s cadence.
-    FILTER_VERIFY_DEVICE: str | None = "TIFilterBlock1"
-    FILTER_VERIFY_PROPERTY = "Label"
-    FILTER_VERIFY_MAX_CORRECTIONS = 3
-    # If True, raise (aborting the run) when the turret can't be corrected;
-    # default False = log loudly and continue.
-    FILTER_VERIFY_RAISE_ON_FAILURE = False
+    # Only the live ``Status`` read exposes these fault codes; the boolean
+    # enabled flag cannot report *why* the PFS is not holding.
+    PFS_FAILING_STATUSES: tuple[str, ...] = (
+        "Focus lock failed",
+        "Dichroic mirror not inserted",
+        "Unsupported objective lens",
+    )
+    # If True, the engine warns when the PFS reports a fault at the start of a
+    # run and, for runs that rely on the PFS to hold focus (PFS engaged and no
+    # Z commanded), when it loses lock mid-acquisition. The check reuses the
+    # ~60 ms live Status read (a non-destructive AF-device reload) once per
+    # timepoint. Set False to disable all PFS health monitoring.
+    MONITOR_PFS_HEALTH: bool = True
+
+    # Filter-turret verification (the "Already at position" cube-skip fix)
+    # lives on MoenchCMMCorePlus, so it covers both MDA channel changes and
+    # napari's interactive ones. Tune it via the FILTER_VERIFY_* class
+    # attributes there.
 
     def __init__(self, affine_calibration_matrix=None, uncropped=False):
+        """Load the Micro-Manager config and bring up the scope.
+
+        Args:
+            affine_calibration_matrix: DMD-to-camera affine from a previous
+                ``calibrate_dmd()`` run, or None to start uncalibrated.
+            uncropped: when True, skip the ROI crop and image the full
+                sensor (sets ``SET_ROI_REQUIRED = False`` on this instance).
+        """
         super().__init__()
 
         pymmcore_plus.use_micromanager(self.MICROMANAGER_PATH)
-        self.mmc = pymmcore_plus.CMMCorePlus(mm_path=self.MICROMANAGER_PATH)
+        self.mmc = MoenchCMMCorePlus(mm_path=self.MICROMANAGER_PATH)
+        # Only one thread at a time may reload the PFS device or read/write the
+        # PFS. Reloading (unload + load + init) destroys and rebuilds the
+        # device's C++ object, so if another thread reads or writes the PFS at
+        # the same moment (e.g. the MDA runner during a Z move while a PFS
+        # health read is reloading) it touches freed memory and the process
+        # crashes. This lock keeps those apart.
+        self._pfs_lock = threading.RLock()
+        # faro's pipeline (and its per-event PFS handling) runs on the engine
+        # thread. That only works with the "psygnal" MDA signal backend; the
+        # "qt" backend instead hands callbacks to the main thread, which both
+        # drops frames and lets a PFS reload run at the same time as PFS access
+        # on another thread. Fail loudly if the backend is "qt"; this call also
+        # builds the runner now, locking in the "psygnal" backend faro set at
+        # import.
+        self._check_signal_backend()
         self.slm_dev = None
         self.slm_width = None
         self.slm_height = None
@@ -203,6 +585,11 @@ class Moench(PyMMCoreMicroscope):
     def init_scope(self):
         """Initialize the microscope."""
         self.mmc.loadSystemConfiguration(self.MICROMANAGER_CONFIG)
+        # isContinuousFocusEnabled()/State are trustworthy only right after a
+        # fresh config load (mid-session they stay frozen at this value).
+        # Snapshot it as a fallback for read_pfs_engaged(); the live read
+        # (reload + Status) is what the engine actually uses.
+        self.pfs_on_at_init = bool(self.mmc.isContinuousFocusEnabled())
         self.mmc.setConfig(groupName="System", configName="Startup")
         # Pin camera binning before set_roi(): MM camera drivers reset
         # the ROI on a binning change, so binning must come first.
@@ -241,11 +628,11 @@ class Moench(PyMMCoreMicroscope):
 
         Args:
             calibration_channel: the light path (Channel/PowerChannel) to image
-                the DMD spots with — pass per experiment (e.g. UV vs cyan).
+                the DMD spots with; pass per experiment (e.g. UV vs cyan).
             background: When True (default), the calibration MDAs run on a
                 worker thread while this call pumps the Qt event loop, so
                 napari stays responsive and previews the calibration spots
-                live. The call still blocks until calibration finishes --
+                live. The call still blocks until calibration finishes;
                 it just doesn't freeze the GUI. Set False to run
                 synchronously on the calling thread.
 
@@ -281,7 +668,7 @@ class Moench(PyMMCoreMicroscope):
 
         # Run on a worker thread; pump Qt here so napari keeps repainting
         # and previewing the calibration frames. The call still blocks
-        # until calibration is done -- it just doesn't starve the GUI.
+        # until calibration is done; it just doesn't starve the GUI.
         done = threading.Event()
         box: list[BaseException] = []
 
@@ -369,6 +756,128 @@ class Moench(PyMMCoreMicroscope):
                 "Failed to register MDA engine on mmc.mda"
             )
 
+    def reload_autofocus_device(self) -> bool:
+        """Unload and re-load the autofocus (PFS) device.
+
+        Reconstructing the device clears the stale state that causes the
+        10 s-per-Z-move block (see ``MoenchMDAEngine._set_event_z``) and
+        refreshes the device's ``Status`` property from the hardware, the
+        basis of ``read_pfs_engaged()``. It does NOT refresh
+        ``isContinuousFocusEnabled()``/``State``: those stay frozen at their
+        config-load values (they appear to live in the TIScope hub's COM
+        objects, which survive a child-device reload). Costs ~60 ms and does
+        not disturb the PFS itself: a locked PFS stays locked across a reload.
+
+        Why it is needed: ``TiCOMPFS::IsEnabled()`` issues a real COM call on
+        every read (the Micro-Manager adapter does not cache anything), but
+        Nikon's MIP COM layer returns a client-side cached parameter value that
+        is only refreshed by ``IMipParameterEvents`` notifications, which are
+        not delivered for the PFS parameter in-process. Constructing a new
+        device (and hence a new parameter object) is what forces a fresh query;
+        ``initializeDevice()`` on a live device is refused, and neither
+        ``TIPFSStatus`` nor the ``TIScope`` hub exposes a refresh knob.
+        """
+        mmc = self.mmc
+        label = mmc.getAutoFocusDevice()
+        if not label:
+            return False
+        with self._pfs_lock:
+            try:
+                library = mmc.getDeviceLibrary(label)
+                name = mmc.getDeviceName(label)
+                parent = mmc.getParentLabel(label)
+            except Exception as e:
+                logger.warning("Cannot introspect %s for reload: %s", label, e)
+                return False
+            try:
+                mmc.unloadDevice(label)
+                mmc.loadDevice(label, library, name)
+                if parent:
+                    mmc.setParentLabel(label, parent)
+                mmc.initializeDevice(label)
+                mmc.setAutoFocusDevice(label)
+            except Exception as e:
+                logger.error("Failed to reload autofocus device %s: %s", label, e)
+                return False
+        return True
+
+    def read_pfs_status_raw(self) -> str | None:
+        """Live PFS ``Status`` string (e.g. 'Locked in focus'), or None.
+
+        Reloads the autofocus device (~60 ms) and reads its ``Status``
+        property. Returns ``None`` when the read path is unavailable (no AF
+        device, reload or read failed).
+
+        Why the reload: on the Nikon Ti, ``isContinuousFocusEnabled()`` /
+        ``State`` are truthful only right after a full config load and are
+        frozen afterwards, even across a reload of the AF device. ``Status``,
+        however, is re-read from the hardware when the device object is
+        constructed, so reload-then-read-``Status`` is the one in-session
+        read that tracks reality, including changes made at the hardware
+        PFS button, which are otherwise completely invisible to software.
+        """
+        # Hold the lock across both the reload and the read, so the read never
+        # runs while another thread is reloading (and destroying) the device.
+        with self._pfs_lock:
+            if not self.reload_autofocus_device():
+                return None
+            label = self.mmc.getAutoFocusDevice()
+            if not label:
+                return None
+            try:
+                return self.mmc.getProperty(label, "Status")
+            except Exception as e:
+                logger.warning("Cannot read PFS Status: %s", e)
+                return None
+
+    def read_pfs_engaged(self) -> bool | None:
+        """Live, truthful read of whether the PFS is currently engaged.
+
+        Returns True/False from the live ``Status`` (see
+        ``read_pfs_status_raw``), or ``None`` when the read path is
+        unavailable; fall back to ``pfs_was_on()`` then.
+        """
+        status = self.read_pfs_status_raw()
+        if status is None:
+            return None
+        return status in self.PFS_ENGAGED_STATUSES
+
+    def pfs_health(self) -> tuple[str, str]:
+        """Live PFS health as ``(state, status_string)``.
+
+        ``state`` is one of:
+          * ``'engaged'``: actively focusing or locked ('Locked in focus',
+            'Focusing');
+          * ``'failing'``: a genuine fault the PFS reports it cannot recover
+            from ('Focus lock failed', 'Dichroic mirror not inserted',
+            'Unsupported objective lens');
+          * ``'idle'``: not driving focus, no fault ('Within range of
+            focus search', 'Out of focus search range'), normal when the PFS
+            is simply off;
+          * ``'unknown'``: the live read was unavailable.
+
+        Only the live ``Status`` read exposes the failing states at all; the
+        boolean enabled flag cannot. Costs one ~60 ms AF-device reload.
+        """
+        status = self.read_pfs_status_raw()
+        if status is None:
+            return ("unknown", "")
+        if status in self.PFS_ENGAGED_STATUSES:
+            return ("engaged", status)
+        if status in self.PFS_FAILING_STATUSES:
+            return ("failing", status)
+        return ("idle", status)
+
+    def pfs_was_on(self) -> bool:
+        """Load-time PFS snapshot; fallback for ``read_pfs_engaged()``.
+
+        Only consulted when the live read path is unavailable (no autofocus
+        device, or a reload/read error). In normal operation prefer
+        ``read_pfs_engaged()``, which reads the true current state, including
+        changes made at the hardware PFS button.
+        """
+        return bool(getattr(self, "pfs_on_at_init", False))
+
     def disable_log_output(self):
         pymmcore_plus.configure_logging(
             stderr_level="CRITICAL",
@@ -406,6 +915,14 @@ class MoenchMDAEngine(MDAEngine):
         )
         self._microscope_ref: Optional[weakref.ref] = None
         self._log = logging.getLogger(self.__class__.__name__)
+        # Per-run PFS bookkeeping (see _set_event_z).
+        self._af_handled_for_run = False
+        self._af_reengage_after_run = False
+        self._warned_slow_z = False
+        # Per-run PFS health monitoring (see _monitor_pfs_health).
+        self._pfs_started_engaged = False
+        self._pfs_last_health_tp = None
+        self._pfs_lost_lock_warned = False
 
     def attach_microscope(self, mic) -> None:
         """Attach the microscope instance (weakref) so engine can consult it."""
@@ -426,8 +943,9 @@ class MoenchMDAEngine(MDAEngine):
         # if self._mmc.getSystemStateCache().isConfigurationIncluded(data):
         #     ...
         if (ch.group, ch.config) != self.mmcore._last_config:  # noqa: SLF001
-            # Try multiple times to set the configuration in case of transient failures.
-            set_ok = False
+            # Try multiple times to set the configuration in case of transient
+            # failures. The core (MoenchCMMCorePlus.setConfig) then verifies the
+            # filter turret reached the requested cube and force-moves on a miss.
             for attempt in range(1, max_retry_attempts + 1):
                 try:
                     self.mmcore.setConfig(ch.group, ch.config)
@@ -439,10 +957,8 @@ class MoenchMDAEngine(MDAEngine):
                         e,
                     )
                     print(
-                        "Failed to set channel (attempt %d/%d). %s",
-                        attempt,
-                        max_retry_attempts,
-                        e,
+                        f"Failed to set channel (attempt {attempt}/"
+                        f"{max_retry_attempts}). {e}"
                     )
                     if attempt == max_retry_attempts:
                         logger.warning(
@@ -452,131 +968,7 @@ class MoenchMDAEngine(MDAEngine):
                     else:
                         time.sleep(0.1)
                 else:
-                    set_ok = True
                     break
-
-            # The NikonTI adapter can silently skip the filter-turret move when
-            # its internal position cache already (wrongly) equals the target.
-            # Confirm the cube actually changed and force a real move if not.
-            if set_ok:
-                self._verify_filter_block(ch.group, ch.config)
-
-    def _verify_filter_block(self, group: str, config: str) -> None:
-        """Confirm the Nikon Ti cube turret reached the cube this channel asks
-        for; on a detected mismatch, force a physical move and re-check.
-
-        Why: the closed NikonTI adapter decides whether to move the turret by
-        comparing the requested position against an internal, callback-fed
-        position cache, and silently skips the move when they're equal
-        ("Already at position; not moving" -- no exception, no error log). A
-        missed/mis-filtered position callback desyncs that cache, so a needed
-        cube change can be dropped and the frame acquired through the wrong
-        cube. Unlike XY/Z, the filter block has no independent re-read or
-        safety timeout in the adapter -- we add one here. See
-        ``nikonti-re/FINDINGS.md`` for the disassembly this is based on.
-
-        Strategy (cheap by default; an extra rotation only on a miss):
-          1. read the turret back; if it equals the target, return (the common
-             case -- one fast read, no extra movement);
-          2. on mismatch, force a real move by first going to a *neighbour*
-             position (which breaks the ``target == cache`` equality the
-             adapter uses to suppress the move) and then to the target,
-             re-checking each time;
-          3. if it still won't land, log loudly (and optionally raise) so a
-             long run surfaces the failure instead of silently collecting
-             wrong-cube data.
-
-        Detection note: the read-back goes through the same cache the adapter
-        compares against, so it cannot catch the rarer case where the cache
-        *wrongly* equals the target. Forcing the move unconditionally would,
-        but at the cost of doubling turret wear on every change -- not
-        acceptable at this rig's ~15 s cadence. If misses persist, the robust
-        fix is a direct-COM Ti backend (see ``nikonti-re/HANDOFF.md``).
-        """
-        mic = self.microscope
-        device = getattr(mic, "FILTER_VERIFY_DEVICE", None) if mic is not None else None
-        if not device:
-            return
-        prop = getattr(mic, "FILTER_VERIFY_PROPERTY", "Label")
-        max_corrections = int(getattr(mic, "FILTER_VERIFY_MAX_CORRECTIONS", 3))
-        core = self.mmcore
-
-        failed_target = None  # set to the label we couldn't reach
-        failed_state = None
-        try:
-            if device not in core.getLoadedDevices():
-                return
-
-            # Target cube for this channel, as set by the preset.
-            target_label = None
-            cfg = core.getConfigData(group, config)
-            for i in range(cfg.size()):
-                s = cfg.getSetting(i)
-                if s.getDeviceLabel() == device and s.getPropertyName() == prop:
-                    target_label = s.getPropertyValue()
-                    break
-            if target_label is None:
-                return  # this channel doesn't drive the turret
-
-            target_state = core.getStateFromLabel(device, target_label)
-            n_states = core.getNumberOfStates(device)
-
-            def _settled_state():
-                # waitForDevice respects the configured FilterBlock Delay; on
-                # this scope its Busy() is usable (not in SKIP_WAIT_DEVICES).
-                try:
-                    core.waitForDevice(device)
-                except RuntimeError:
-                    pass
-                return core.getState(device)
-
-            if _settled_state() == target_state:
-                return  # fast path: turret is where we asked, no extra movement
-
-            neighbour = (target_state + 1) % n_states
-            if neighbour != target_state:  # guard a 1-position device
-                for attempt in range(1, max_corrections + 1):
-                    logger.warning(
-                        "Filter turret missed %r (state %d); forcing move "
-                        "(%d/%d).",
-                        target_label, target_state, attempt, max_corrections,
-                    )
-                    print(
-                        f"[WARN] Filter turret missed {target_label!r}; "
-                        f"forcing move ({attempt}/{max_corrections})."
-                    )
-                    # Go to a different cube first so target != cached position;
-                    # this defeats the adapter's "Already at position" skip.
-                    core.setState(device, neighbour)
-                    try:
-                        core.waitForDevice(device)
-                    except RuntimeError:
-                        pass
-                    core.setStateLabel(device, target_label)
-                    if _settled_state() == target_state:
-                        logger.info(
-                            "Filter turret recovered to %r after %d attempt(s).",
-                            target_label, attempt,
-                        )
-                        return
-
-            failed_target = target_label
-            failed_state = _settled_state()
-        except Exception as e:  # never let verification crash an acquisition
-            logger.warning("Filter-turret verify errored (ignored). %s", e)
-            return
-
-        # Persistent mismatch: surface loudly so a long run can't silently
-        # collect wrong-cube data.
-        msg = (
-            f"Filter turret FAILED to reach {failed_target!r} after "
-            f"{max_corrections} forced moves (stuck at state {failed_state}); "
-            f"frames may be acquired through the WRONG cube."
-        )
-        logger.error(msg)
-        print(f"[ERROR] {msg}")
-        if getattr(mic, "FILTER_VERIFY_RAISE_ON_FAILURE", False):
-            raise RuntimeError(msg)
 
     def _set_event_xy_position(self, event: MDAEvent, max_retry_attempts=5) -> None:
         event_x, event_y = event.x_pos, event.y_pos
@@ -607,8 +999,7 @@ class MoenchMDAEngine(MDAEngine):
             event_x = cur_x if event_x is None else event_x
             event_y = cur_y if event_y is None else event_y
 
-        for attempt in range(0, max_retry_attempts):
-            print
+        for attempt in range(1, max_retry_attempts + 1):
             try:
                 core.setXYPosition(event_x, event_y)
                 return
@@ -619,8 +1010,8 @@ class MoenchMDAEngine(MDAEngine):
                         # all retries used, re-raise
                         raise
                     print(
-                        f"[WARN] TIXYDrive wait timed out (attempt {attempt+1}/{max_retry_attempts+1}); "
-                        f"retrying in {1} s..."
+                        f"[WARN] TIXYDrive wait timed out (attempt {attempt}/{max_retry_attempts}); "
+                        "retrying in 1 s..."
                     )
                     time.sleep(1)
                 else:
@@ -628,67 +1019,82 @@ class MoenchMDAEngine(MDAEngine):
                     logger.warning("Failed to set XY position. %s", e)
                     raise
 
-    def _wait_for_system_excluding_xy(self, event: MDAEvent) -> None:
-        """Wait for all devices except TIXYDrive, then handle XY separately.
+    def _set_pfs(self, on: bool) -> bool:
+        """Enable or disable continuous focus (PFS).
 
-        TIXYDrive's Busy() flag is perpetually stuck on this microscope,
-        so including it in waitForSystem() wastes 5s per event. Instead we
-        wait for each device individually and only check XY position when
-        a move was actually commanded. Devices listed in the microscope's
-        SKIP_WAIT_DEVICES are bypassed for the same reason.
+        Returns True when the enable/disable call raises no error, not that the
+        hardware confirmed. Takes the microscope's ``_pfs_lock`` so the write
+        cannot hit the device while another thread reloads it. When the Nikon
+        adapter DLL is patched to report the PFS on/off state from the hardware,
+        both enable and disable take effect; otherwise only the first write per
+        session does, so check the result with ``read_pfs_engaged()`` when it
+        matters.
         """
-        core = self.mmcore
-        xy_stage = core.getXYStageDevice() if core.getXYStageDevice() else None
-
-        skip = {"Core"}
-        if xy_stage:
-            skip.add(xy_stage)
         mic = self.microscope
-        if mic is not None:
-            skip.update(getattr(mic, "SKIP_WAIT_DEVICES", ()))
-
-        # Wait for every loaded device except the XY stage and any
-        # caller-declared skip devices.
-        for dev in core.getLoadedDevices():
-            if dev in skip:
-                continue
+        lock = getattr(mic, "_pfs_lock", None) if mic is not None else None
+        with (lock or nullcontext()):
             try:
-                core.waitForDevice(dev)
-            except RuntimeError as e:
-                if "timed out" in str(e):
-                    print(f"[WARN] waitForDevice({dev}) timed out ({e}), continuing.")
-                else:
-                    raise
-
-        # Handle TIXYDrive: only wait if an XY move was commanded.
-        # Since Busy() is perpetually stuck, we poll position directly
-        # instead of relying on waitForDevice().
-        target_xy = (event.x_pos, event.y_pos)
-        if xy_stage and target_xy != (None, None):
-            xy_tolerance_um = 1.0
-            max_wait_s = 5.0
-            poll_interval_s = 0.5
-            elapsed = 0.0
-            while elapsed < max_wait_s:
-                try:
-                    actual_xy = core.getXYPosition()
-                    dx = abs(actual_xy[0] - target_xy[0])
-                    dy = abs(actual_xy[1] - target_xy[1])
-                    if dx < xy_tolerance_um and dy < xy_tolerance_um:
-                        break
-                except Exception:
-                    pass
-                time.sleep(poll_interval_s)
-                elapsed += poll_interval_s
-            else:
-                try:
-                    actual_xy = core.getXYPosition()
-                except Exception:
-                    actual_xy = "unknown"
-                print(
-                    f"[WARN] {xy_stage} not at target after {max_wait_s}s. "
-                    f"target={target_xy}, actual={actual_xy}"
+                self.mmcore.enableContinuousFocus(bool(on))
+            except Exception as e:
+                logger.warning(
+                    "Failed to %s PFS: %s", "enable" if on else "disable", e
                 )
+                return False
+        return True
+
+    def _set_event_z(self, event: MDAEvent) -> None:
+        """Disengage the PFS once, on the first Z move of the run.
+
+        When a Z move is commanded while the PFS is on, TIZDrive's SetPosition
+        turns the PFS off and then waits ~10 s for a confirmation that never
+        comes, so every Z move costs ~10 s. Turning the PFS off in software
+        once, before the first Z move, avoids this for the rest of the run, as
+        long as the Nikon adapter DLL is patched to report the PFS on/off state
+        from the hardware. So this reads the PFS state once (one device reload,
+        on the first event that has a Z position), turns the PFS off if it was
+        on, and turns it back on in ``teardown_sequence``. Events with no Z
+        position never reach this method and leave the PFS alone.
+
+        This depends on the patched adapter. Without the patch, Micro-Manager
+        keeps reporting the PFS as on even after we turn it off, so the 10 s
+        wait comes back; the slow-Z check below then warns.
+        """
+        mic = self.microscope
+        if mic is not None and not self._af_handled_for_run:
+            self._af_handled_for_run = True
+            engaged = None
+            try:
+                engaged = mic.read_pfs_engaged()  # one reload, first Z event
+            except Exception as e:
+                logger.warning("Live PFS read failed: %s", e)
+            if engaged is None:
+                engaged = bool(getattr(mic, "pfs_on_at_init", False))
+            if engaged:
+                msg = (
+                    "Z move requested while continuous focus (PFS) is "
+                    "engaged: disengaging it for this run; it will be "
+                    "re-engaged when the run ends."
+                )
+                logger.info(msg)
+                print(f"[INFO] {msg}")
+                if self._set_pfs(False):
+                    self._af_reengage_after_run = True
+                    time.sleep(0.5)  # let the PFS physically release Z
+
+        # Safety check: if the Z move is still slow, Micro-Manager still thinks
+        # the PFS is on despite the disable above, so warn.
+        t0 = time.perf_counter()
+        super()._set_event_z(event)
+        dt = time.perf_counter() - t0
+        if dt > 5.0 and not self._warned_slow_z:
+            self._warned_slow_z = True
+            msg = (
+                f"Z move took {dt:.1f} s; the Nikon adapter still believed "
+                "the PFS was engaged despite the pre-run handling. Check the "
+                "PFS state at the microscope."
+            )
+            logger.warning(msg)
+            print(f"[WARN] {msg}")
 
     def setup_sequence(self, sequence):
         """Pause KeepDMDAlive for the duration of the MDA.
@@ -707,26 +1113,87 @@ class MoenchMDAEngine(MDAEngine):
                     wakeup.stop()
                 except Exception:
                     self._log.exception("Failed to stop wakeup_dmd before MDA")
+        self._af_handled_for_run = False
+        self._af_reengage_after_run = False
+        self._warned_slow_z = False
+
+        # PFS health: one live read at run start. Records whether the PFS is
+        # holding focus (so _monitor_pfs_health can watch for a lost lock on
+        # runs that rely on it), and warns immediately if it reports a fault.
+        self._pfs_started_engaged = False
+        self._pfs_last_health_tp = None
+        self._pfs_lost_lock_warned = False
+        if mic is not None and getattr(mic, "MONITOR_PFS_HEALTH", False):
+            try:
+                state, status = mic.pfs_health()
+            except Exception as e:
+                state, status = "unknown", ""
+                logger.warning("PFS health read failed at run start: %s", e)
+            self._pfs_started_engaged = (state == "engaged")
+            if state == "failing":
+                msg = (
+                    f"PFS reports a fault at the start of this run "
+                    f"(status: {status!r}); focus may be unreliable."
+                )
+                logger.warning(msg)
+                print(f"[WARN] {msg}")
+
         return super().setup_sequence(sequence)
 
     def teardown_sequence(self, sequence) -> None:
-        super().teardown_sequence(sequence)
-        mic = self.microscope
-        if mic is not None:
-            wakeup = getattr(mic, "wakeup_dmd", None)
-            if wakeup is not None:
+        # The base teardown's state restoration calls waitForSystem(), which
+        # can raise (e.g. a device wait timing out while TIZDrive's Busy()
+        # flag is stuck), so the cleanup below must run in a ``finally`` or
+        # the PFS would silently stay disengaged.
+        try:
+            super().teardown_sequence(sequence)
+        finally:
+            mic = self.microscope
+            if mic is not None:
+                wakeup = getattr(mic, "wakeup_dmd", None)
+                if wakeup is not None:
+                    try:
+                        wakeup.run()
+                    except Exception:
+                        self._log.exception(
+                            "Failed to restart wakeup_dmd after MDA"
+                        )
+            # Turn the PFS back on only if _set_event_z turned it off. With the
+            # patched Nikon adapter DLL this reaches the hardware and normally
+            # works; we check the result and warn on failure (without the patch
+            # only the first PFS on/off per session takes effect, so the user
+            # then needs a fresh config load or the hardware button).
+            if self._af_reengage_after_run:
+                self._af_reengage_after_run = False
+                self._set_pfs(True)
+                time.sleep(1.5)
                 try:
-                    wakeup.run()
+                    engaged = mic.read_pfs_engaged() if mic is not None else None
                 except Exception:
-                    self._log.exception("Failed to restart wakeup_dmd after MDA")
+                    engaged = None
+                if engaged is False:
+                    msg = (
+                        "PFS could NOT be re-engaged from software. If the "
+                        "Nikon adapter DLL is not patched, only the first "
+                        "continuous-focus write per session reaches the "
+                        "hardware; re-lock the PFS at the microscope button."
+                    )
+                    logger.warning(msg)
+                    print(f"[WARN] {msg}")
+                else:
+                    logger.info("Re-engaged continuous focus (PFS) after run.")
+                    print(
+                        "[INFO] Re-engaged continuous focus (PFS) after run."
+                    )
 
     def setup_event(self, event: MDAEvent) -> None:
-        """Override to wait for devices individually, bypassing TIXYDrive.
+        """Set up the event, wait for the system, and monitor PFS health.
 
-        The TIXYDrive on this microscope has a perpetually-stuck Busy() flag,
-        so waitForSystem() always times out after 5s. Instead, we wait for each
-        device individually and handle TIXYDrive separately only when an XY
-        move was actually commanded.
+        Adds an all-on DMD-wake SLM injection before setup and a PFS-health
+        check after the wait. The wait itself is the plain
+        ``mmcore.waitForSystem()``; MoenchCMMCorePlus makes it fast on this
+        scope by confirming the stages via position instead of their stuck
+        ``Busy()`` flags.
         """
         event = self._maybe_inject_dmd_wake_slm(event)
         if isinstance(event, SequencedEvent):
@@ -734,7 +1201,58 @@ class MoenchMDAEngine(MDAEngine):
         else:
             self.setup_single_event(event)
 
-        self._wait_for_system_excluding_xy(event)
+        # MoenchCMMCorePlus.waitForSystem() confirms the XY/Z stages by position
+        # and skips the DMD's stuck Busy(), so this returns promptly.
+        self.mmcore.waitForSystem()
+        self._monitor_pfs_health(event)
+
+    def _monitor_pfs_health(self, event: MDAEvent) -> None:
+        """Warn if a PFS the run relies on loses focus mid-acquisition.
+
+        Only active when the PFS was engaged at run start AND the run has not
+        disengaged it for Z moves (i.e. the acquisition is trusting the PFS to
+        hold focus). Checks at most once per timepoint, reusing the live
+        ``Status`` read (~60 ms, non-destructive). A drop out of the engaged
+        states, whether to a fault ('Focus lock failed', ...) or simply out of lock
+        ('Within range of focus search'), is reported once, and a recovery
+        is noted. Runs that never engaged the PFS, or that disabled it for Z,
+        are not monitored. Disable via ``Moench.MONITOR_PFS_HEALTH = False``.
+        """
+        mic = self.microscope
+        if mic is None or not getattr(mic, "MONITOR_PFS_HEALTH", False):
+            return
+        if not self._pfs_started_engaged:
+            return  # PFS was not holding focus at run start; nothing to watch
+        if self._af_reengage_after_run:
+            return  # we intentionally disengaged it for this (Z) run
+
+        tp = event.index.get("t") if getattr(event, "index", None) else None
+        if tp == self._pfs_last_health_tp:
+            return  # already checked this timepoint
+        self._pfs_last_health_tp = tp
+
+        try:
+            state, status = mic.pfs_health()
+        except Exception as e:
+            logger.warning("PFS health read failed mid-run: %s", e)
+            return
+
+        if state == "engaged":
+            if self._pfs_lost_lock_warned:
+                self._pfs_lost_lock_warned = False
+                logger.info("PFS re-locked (status: %r).", status)
+                print(f"[INFO] PFS re-locked (status: {status!r}).")
+        elif state in ("failing", "idle"):
+            # Engaged at start, now not locked/focusing -> lost lock or fault.
+            if not self._pfs_lost_lock_warned:
+                self._pfs_lost_lock_warned = True
+                kind = "fault" if state == "failing" else "lost lock"
+                msg = (
+                    f"PFS {kind} during acquisition (status: {status!r}); "
+                    "frames from here may be out of focus."
+                )
+                logger.warning(msg)
+                print(f"[WARN] {msg}")
 
     def exec_event(self, event: MDAEvent):
         """Override to inject the all-on SLM on non-stim events.
@@ -788,8 +1306,8 @@ class MoenchMDAEngine(MDAEngine):
         for exactly that long after the "Expose" and then park. We override it
         to ``Moench.DMD_HOLD_EXPOSURE_MS`` so the mirrors stay in the pattern
         across the whole camera/LED window (the Mosaic3 has no "Mirror On"
-        mode). The stim *dose* is unaffected -- it is gated by the
-        camera-triggered LED, not the DMD. See ``nikonti-re/mosaic3/FINDINGS.md``.
+        mode). The stim *dose* is unaffected; it is gated by the
+        camera-triggered LED, not the DMD.
         """
         super()._set_event_slm_image(event)
         if event.slm_image is None:
@@ -816,7 +1334,7 @@ class MoenchMDAEngine(MDAEngine):
         short settle lets that commit finish before ``snapImage`` opens the
         camera and the camera-triggered LED fires, so the first part of the
         frame isn't integrated against a not-yet-committed pattern. Gated by
-        ``Moench.DMD_SETTLE_MS`` (None/0 disables). See FINDINGS.md.
+        ``Moench.DMD_SETTLE_MS`` (None/0 disables).
         """
         super()._exec_event_slm_image(img)
         mic = self.microscope
@@ -862,7 +1380,7 @@ class MoenchMDAEngine(MDAEngine):
                         mmcore.setProperty(dev, prop, value)
                 except Exception as e:
                     logger.warning("Failed to set properties. %s", e)
-                    print(("Failed to set properties. %s", e))
+                    print(f"Failed to set properties. {e}")
                     if attempt == max_retry_attempts:
                         logger.warning(
                             "Giving up after %d attempts to set channel.",
