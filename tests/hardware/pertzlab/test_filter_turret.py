@@ -2,19 +2,19 @@
 
 The closed NikonTI adapter (``TIFilterBlock1``) can *silently skip* a cube
 change when its internal, callback-maintained position cache already equals
-the target ("Already at position; not moving" -- no exception, no error log).
+the target ("Already at position; not moving", no exception, no error log).
 A missed/mis-filtered position callback desyncs that cache, so a genuinely
 needed cube change can vanish and the frame is acquired through the wrong
 cube. Unlike the XY/Z stages, the turret has no independent re-read or safety
-timeout in the adapter, so ``MoenchMDAEngine._verify_filter_block`` adds one:
-after each channel change it reads the turret back and, on a mismatch, forces
-a real move (neighbour -> target, defeating the "already at position" skip).
-See ``nikonti-re/FINDINGS.md`` for the disassembly this is based on.
+timeout in the adapter, so ``MoenchCMMCorePlus`` adds one: after each channel
+change (``setConfig`` here, or an interactive ``setStateLabel``) it reads the
+turret back and, on a mismatch, forces a real move (neighbour -> target,
+defeating the "already at position" skip).
 
 This test is the turret analogue of a filter-wheel-change test: it drives the
 turret through the *distinct* cubes of the multi-cube channel group (unlike
 ``TTL_ERK``, every channel of which shares one cube) via the engine's
-channel-set path -- the same path an MDA uses -- and asserts the turret
+channel-set path (the same path an MDA uses) and asserts the turret
 reports the commanded cube after every change.
 
 Gated by ``--scope`` / ``FARO_SCOPE``.
@@ -44,7 +44,7 @@ def _cube_for_channel(mmc, group: str, config: str) -> str | None:
 
 
 def _distinct_cube_channels(mmc, group: str) -> list[tuple[str, str]]:
-    """[(channel, cube), ...] -- one representative channel per distinct cube."""
+    """[(channel, cube), ...]: one representative channel per distinct cube."""
     if group not in mmc.getAvailableConfigGroups():
         return []
     by_cube: dict[str, str] = {}
@@ -62,7 +62,8 @@ def test_filter_turret_changes_land(microscope) -> None:
     Drives the turret through the distinct cubes ``REPEATS`` times via the
     engine's ``_set_event_channel`` (which applies the verify/force-move fix)
     and asserts the hardware reports the commanded cube after each change.
-    A pre-fix run would intermittently leave the turret on a stale cube.
+    Without the verify, a change can intermittently leave the turret on a
+    stale cube.
     """
     mmc = microscope.mmc
     engine = microscope.engine
