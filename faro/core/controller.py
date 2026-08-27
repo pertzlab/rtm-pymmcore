@@ -15,10 +15,11 @@ from faro.core.writers import (
 from faro.stimulation.base import Stim, StimWithImage, StimWithPipeline
 
 import contextlib
+import logging
 import threading
 import traceback
 from dataclasses import dataclass
-from typing import Literal
+from typing import Iterator, Literal
 from faro.core._useq_compat import SLMImage
 from psygnal import Signal
 from useq import MDAEvent
@@ -29,6 +30,8 @@ import tifffile
 import os
 from concurrent.futures import ThreadPoolExecutor
 
+
+logger = logging.getLogger(__name__)
 
 BackgroundErrorSource = Literal["storage", "deferred", "pipeline", "stim_mask"]
 
@@ -94,7 +97,7 @@ class Analyzer:
         writer: Writer | None = None,
         debug: bool = False,
         debug_every: int = 10,
-        stim_mask_timeout: float = 80,
+        stim_mask_timeout: float = 30,
     ):
         """
         Args:
@@ -102,8 +105,11 @@ class Analyzer:
             max_workers: Number of worker threads for pipeline (default: 4)
             max_queue_size: Maximum images in executor queue before deferring (default: 60)
             writer: Storage backend. Defaults to TiffWriter if pipeline has storage_path.
-            stim_mask_timeout: Seconds to wait for a stim mask from the pipeline
-                before recording a background error and falling through with None.
+            stim_mask_timeout: Slip allowance, in seconds, past a stim event's
+                scheduled due time to keep waiting for its mask before the
+                controller records a background error and fires the all-off
+                fallback. The source frame is always in the pipeline before
+                the wait starts, so this bounds segmentation latency only.
                 Increase for slow first-frame segmenters (cellpose SAM, remote).
         """
         self.pipeline = pipeline
@@ -174,7 +180,7 @@ class Analyzer:
         return self.fov_states[fov_index]
 
     def cancel_pending_waits(self) -> None:
-        """Wake any feed-loop thread parked in :meth:`get_stim_mask`.
+        """Wake the event stream if it is parked in :meth:`get_stim_mask`.
 
         ``get_stim_mask`` blocks on ``stim_mask_queue.wait_for_frame``
         for up to ``stim_mask_timeout`` seconds. Cancelling the
@@ -187,7 +193,7 @@ class Analyzer:
         waiters run on pipeline workers that ``shutdown`` already
         drains, and they have a file-based fallback for timeouts.
         """
-        # Snapshot: the feed-loop thread may insert a new FovState via
+        # Snapshot: the MDA thread may insert a new FovState via
         # get_fov_state() concurrently with this iteration.
         for fov_state in list(self.fov_states.values()):
             fov_state.stim_mask_queue.cancel()
@@ -265,8 +271,8 @@ class Analyzer:
             except FrameWaitCancelled:
                 # Run is being cancelled — the dispenser was woken by
                 # Analyzer.cancel_pending_waits(). Unwind quietly so the
-                # feed loop reaches its cancel check; not a failure, so
-                # no background error is recorded.
+                # event stream reaches its cancel check; not a failure,
+                # so no background error is recorded.
                 return None
             except QueueEmpty as e:
                 # _build_stim_slm still log-and-continues with False, but
@@ -694,15 +700,14 @@ class Analyzer:
 class Controller:
     """Experiment orchestrator.
 
-    Converts RTMEvents to MDAEvents, queues them through the microscope's
-    MDA runner, and dispatches acquired frames to the Analyzer.
+    Converts RTMEvents to MDAEvents, streams them to the microscope's
+    MDA runner one pull at a time, and dispatches acquired frames to the
+    Analyzer.
 
     The Controller accesses hardware exclusively through the microscope's
     abstract interface (run_mda, connect/disconnect_frame, cancel_mda,
     resolve_group, resolve_power) and never imports pymmcore-plus.
     """
-
-    STOP_EVENT = object()
 
     # Emitted on each new ``run_experiment`` / ``continue_experiment`` call,
     # carrying the freshly-created RunHandle. Widgets subscribe to this so
@@ -729,16 +734,9 @@ class Controller:
         self._mic = mic
         self._pipeline = pipeline
         self._writer = writer
-        self._queue: Queue = Queue()
         self._analyzer: Analyzer | None = None
         self._n_channels: int = 1
         self._frame_buffers: dict[tuple, list] = {}
-
-        # (t, p) of imaging frames whose channels have all arrived and been
-        # submitted to the pipeline. Written from the frameReady callback,
-        # read by the feed loop's stim gate.
-        self._acquired_frames: set[tuple[int, int]] = set()
-        self._acquired_lock = threading.Lock()
 
         # Continuation state
         self._t_offset: int = 0
@@ -796,7 +794,7 @@ class Controller:
     ) -> RunHandle:
         """Start an acquisition asynchronously. Returns immediately.
 
-        The MDA feed loop runs in a worker thread; ``RunHandle`` exposes
+        The MDA runs supervised by a worker thread; ``RunHandle`` exposes
         ``wait()`` / ``cancel()`` / ``status()`` and a ``statusChanged``
         signal for live observation. There is **no** synchronous fallback —
         callers that previously did ``ctrl.run_experiment(events)`` must
@@ -922,17 +920,13 @@ class Controller:
             )
 
     def _cancel_stim_waits(self) -> None:
-        """RunHandle ``on_cancel`` hook — wake a feed loop blocked on a stim mask.
+        """RunHandle ``on_cancel`` hook: wake the event stream's mask wait.
 
-        The feed loop checks ``handle.cancel_event`` at every iteration,
-        but while it is parked inside ``_build_stim_slm`` ->
-        ``Analyzer.get_stim_mask`` -> ``FrameDispenser.wait_for_frame``
-        it cannot poll. Without this hook a cancel issued during that
-        window would not take effect until the stim-mask timeout (up to
-        80 s) elapsed — and until the feed loop unwinds, its
-        ``finally`` block never disconnects ``_on_frame_ready``, so
-        stray frames (e.g. a later DMD calibration) keep reaching the
-        Analyzer. Cancelling the dispensers releases the wait at once.
+        The event stream checks ``handle.cancel_event`` between events,
+        but cannot poll while it is blocked on a stim mask inside
+        ``Analyzer.get_stim_mask``. Cancelling the dispensers releases
+        that wait immediately, so a cancel takes effect at once instead
+        of after the stim-mask timeout.
         """
         analyzer = self._analyzer
         if analyzer is not None:
@@ -966,9 +960,9 @@ class Controller:
         """Background-thread entry point for an experiment run.
 
         Owns: writer init (incl. potentially-slow zarr ``rmtree`` on overwrite),
-        ``Analyzer`` construction (or reuse for continue), the feed loop, and
-        the final wall-clock offset update. All status updates flow through
-        ``handle.update`` so listeners see the progression.
+        ``Analyzer`` construction (or reuse for continue), MDA supervision,
+        and the final wall-clock offset update. All status updates flow
+        through ``handle.update`` so listeners see the progression.
         """
         # started_at is set on the first acquired frame (see _on_frame_ready)
         # so a pre-acquisition WaitEvent doesn't tick elapsed/lag.
@@ -999,8 +993,8 @@ class Controller:
                 and self._writer._raw_array is None
             ):
                 # NB: on a network drive an overwrite-existing init can do a
-                # multi-minute rmtree. With the feed loop on a worker thread
-                # this no longer freezes napari; status stays "running" until
+                # multi-minute rmtree. This runs on a worker thread so it
+                # no longer freezes napari; status stays "running" until
                 # the actual MDA starts.
                 img_h, img_w = self._get_image_size()
                 self._writer.init_stream(
@@ -1018,7 +1012,7 @@ class Controller:
 
             self._validate_fov_positions(events)
 
-            # ---- the feed loop ------------------------------------------
+            # ---- the MDA ------------------------------------------------
             self._run_mda_with_events(events, stim_mode=stim_mode, handle=handle)
 
         except BaseException as exc:
@@ -1046,8 +1040,8 @@ class Controller:
 
         events = list(events)
         offset_events = self._offset_events(events)
-        # Add events + sentinel; bump counter so the loop keeps going. Lock
-        # because the feed loop now reads _pending_sentinels from the worker
+        # Add events + sentinel; bump counter so the stream keeps going. Lock
+        # because the event stream reads _pending_sentinels from the MDA
         # thread while extend_experiment runs from the caller's thread.
         with self._pending_sentinels_lock:
             self._pending_sentinels += 1
@@ -1150,7 +1144,6 @@ class Controller:
         """Hard-stop the run path (legacy). Prefer ``handle.cancel()``."""
         if self._current_handle is not None:
             self._current_handle.cancel()
-        self._queue.put(self.STOP_EVENT)
         self._mic.cancel_mda()
         if self._analyzer is not None:
             self._analyzer.shutdown(wait=True)
@@ -1198,13 +1191,12 @@ class Controller:
             self._fov_positions[fov] = pos
 
     def _run_mda_with_events(self, events, *, stim_mode, handle: RunHandle):
-        """Run the MDA event loop on the worker thread.
+        """Start the MDA on its own thread and supervise it until it finishes.
 
-        Called from :meth:`_run_worker`. The whole body runs off the main
-        thread, so blocking primitives (``time.sleep``, ``thread.join``,
-        ``FrameDispenser.wait_for_frame``) no longer freeze napari. The
-        feed loop checks ``handle.cancel_event`` at each iteration so
-        ``handle.cancel()`` returns control without a Ctrl-C.
+        Called from :meth:`_run_worker`. The events themselves are produced
+        by :meth:`_event_stream`, a generator the MDA runner pulls from on
+        the MDA thread; this worker thread only sets up the run, watches
+        for cancellation, and tears down.
         """
         # Live mode (continuous sequence acquisition) and the MDA both drive
         # the camera. A live stream still running when the MDA's first
@@ -1225,19 +1217,6 @@ class Controller:
 
         self._mic.connect_frame(self._on_frame_ready)
 
-        # Recreate the engine queue for this run. The finally-block below
-        # puts a STOP_EVENT sentinel into self._queue to stop the engine;
-        # on a *cancelled* run the engine is aborted via cancel_mda() and
-        # may stop without draining the queue, leaving stale events + the
-        # STOP sentinel behind. Reusing that queue for the next run makes
-        # the new engine consume the stale sentinel and exit almost
-        # immediately -- the feed loop keeps pushing but nothing snaps
-        # (the run "sticks" after a few events). A fresh queue per run
-        # avoids that entirely.
-        self._queue = Queue()
-        with self._acquired_lock:
-            self._acquired_frames.clear()
-
         # Set up event queue for extend_experiment support.
         # _pending_sentinels tracks how many extra batches (from
         # extend_experiment) still need to be drained.
@@ -1254,33 +1233,69 @@ class Controller:
         if self._pre_loop_hook is not None:
             self._pre_loop_hook()
 
-        queue_sequence = iter(self._queue.get, self.STOP_EVENT)
-        mda_thread = self._mic.run_mda(queue_sequence)
+        mda_thread = self._mic.run_mda(
+            self._event_stream(stim_mode=stim_mode, handle=handle)
+        )
 
+        try:
+            # Supervision only: the generator runs on the MDA thread. A
+            # cancel is forwarded to the runner once so it interrupts a
+            # min_start_time sleep the generator cannot reach; the
+            # generator's own mask waits are woken by the RunHandle's
+            # on_cancel hook (_cancel_stim_waits).
+            cancelled = False
+            while mda_thread.is_alive():
+                if handle.cancel_event.is_set() and not cancelled:
+                    cancelled = True
+                    with contextlib.suppress(Exception):
+                        self._mic.cancel_mda()
+                mda_thread.join(timeout=0.2)
+        finally:
+            self._event_queue = None
+            mda_thread.join()
+            self._mic.disconnect_frame(self._on_frame_ready)
+
+        # A _fatal_error set from a frame callback or the event stream
+        # surfaces through the handle's RunStatus.fatal_error, which
+        # _run_worker reads after we return. Re-raise so the worker's
+        # try/except can record it.
+        if self._fatal_error is not None:
+            fatal = self._fatal_error
+            self._fatal_error = None
+            raise fatal
+
+    def _event_stream(
+        self, *, stim_mode: str, handle: RunHandle
+    ) -> Iterator[MDAEvent]:
+        """Yield MDAEvents to the MDA runner, one pull at a time.
+
+        The runner asks for the next event only after the previous one
+        fully completed, including the synchronous ``frameReady`` handling
+        that submits the frame to the pipeline on this same thread. A stim
+        event's source frame is therefore already in the pipeline when its
+        mask is requested. This ordering holds by construction; no clock
+        is involved.
+
+        Pause takes effect between RTMEvents only: the stream holds
+        without yielding while paused, and min_start_times keep their
+        values on resume, so late events catch up. The body records any
+        exception as the run's fatal error and ends the stream cleanly,
+        because an exception raised here would otherwise kill the MDA
+        thread with a bare traceback.
+        """
         try:
             while True:
                 if handle.cancel_event.is_set():
-                    break
+                    return
 
-                # Drain the backpressure window so queued events don't keep
-                # snapping while the user adjusts hardware. min_start_times
-                # are not shifted; late events catch up on resume.
                 if handle.pause_event.is_set():
-                    held: list[MDAEvent] = []
-                    try:
-                        while True:
-                            held.append(self._queue.get_nowait())
-                    except QueueEmpty:
-                        pass
                     handle.update(state="paused")
                     while handle.pause_event.is_set():
                         if handle.cancel_event.is_set():
-                            break
+                            return
                         time.sleep(0.05)
-                    for ev in held:
-                        self._queue.put(ev)
                     if handle.cancel_event.is_set():
-                        break
+                        return
                     handle.update(state="running")
                     continue
 
@@ -1292,65 +1307,19 @@ class Controller:
                     continue
 
                 if rtm_event is None:
-                    # Sentinel consumed — stop only if no extension pending
+                    # Sentinel consumed. Stop only if no extension pending.
                     with self._pending_sentinels_lock:
                         if self._pending_sentinels > 0:
                             self._pending_sentinels -= 1
                             continue
-                    break
+                    return
 
                 if isinstance(rtm_event, WaitEvent):
-                    prev = handle.status()
-                    handle.update(
-                        current_event_index=dict(rtm_event.index),
-                        n_events_consumed=prev.n_events_consumed + 1,
-                    )
-                    # Feed loop runs ~3 events ahead of the engine; let
-                    # those in-flight imaging events finish before the
-                    # cursor jumps onto the wait cell.
-                    while not handle.cancel_event.is_set():
-                        s = handle.status()
-                        if s.n_events_acquired >= s.n_events_consumed - 1:
-                            break
-                        if handle.cancel_event.wait(0.05):
-                            break
-                    if handle.cancel_event.is_set():
-                        break
-
-                    base = self._experiment_start or time.monotonic()
-                    # Anchor to whichever is later: scheduled start or now.
-                    # A pause-drain can push wallclock past the scheduled
-                    # window; without max() the wait would flash through.
-                    scheduled_start = base + (rtm_event.min_start_time or 0)
-                    deadline = max(scheduled_start, time.monotonic()) + rtm_event.duration_s
-                    handle.update(state="waiting", wait_remaining_s=rtm_event.duration_s)
-                    last_displayed = int(rtm_event.duration_s)
-                    while True:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            break
-                        # Throttle emissions to once per displayed second:
-                        # the widget renders int(remaining), so sub-second
-                        # updates only churn the Qt event queue.
-                        cur = int(remaining)
-                        if cur != last_displayed:
-                            handle.update(wait_remaining_s=remaining)
-                            last_displayed = cur
-                        if handle.cancel_event.wait(min(0.1, remaining)):
-                            break
-                    if handle.cancel_event.is_set():
-                        break
-                    # Bump n_events_acquired so the cursor stays monotonic
-                    # when state leaves "waiting".
-                    new_state = "pausing" if handle.pause_event.is_set() else "running"
-                    handle.update(
-                        state=new_state,
-                        wait_remaining_s=None,
-                        n_events_acquired=handle.status().n_events_acquired + 1,
-                    )
+                    if not self._run_wait_event(rtm_event, handle):
+                        return
                     continue
 
-                # Status update: the feed loop committed to this RTMEvent.
+                # Status update: the stream committed to this RTMEvent.
                 prev = handle.status()
                 fov = rtm_event.index.get("p")
                 handle.update(
@@ -1358,16 +1327,6 @@ class Controller:
                     current_fov=fov,
                     n_events_consumed=prev.n_events_consumed + 1,
                 )
-
-                # Backpressure: don't get too far ahead of the MDA engine.
-                # Plain time.sleep is fine here -- this is a worker thread,
-                # not the main thread, so napari's event loop is untouched.
-                while self._queue.qsize() >= 3:
-                    if handle.cancel_event.is_set():
-                        break
-                    time.sleep(0.05)
-                if handle.cancel_event.is_set():
-                    break
 
                 self._n_channels = len(rtm_event.channels)
 
@@ -1378,19 +1337,12 @@ class Controller:
                 # ``slm_image`` would leave the DMD in its previously-
                 # latched state. Per-FOV first-visit suppression is
                 # *not* needed: the pipeline always-computes in previous
-                # mode (commit ca69abc), so peek_at_frame finds the
-                # predecessor's mask for every t > 0.
+                # mode, so the predecessor's mask exists for every t > 0.
                 suppress_stim = (
                     stim_mode == "previous"
                     and rtm_event.index.get("t", 0) == 0
                 )
 
-                # Defer stim-mask computation so imaging events reach
-                # the MDA queue first. plan_events returns a list, and
-                # build_slm blocks on get_stim_mask (up to 80 s). With
-                # the old code the imaging event sat un-queued while
-                # get_stim_mask waited for a pipeline mask that could
-                # never arrive — a deadlock that looked like a timeout.
                 planned = rtm_event.plan_events(
                     stim_mode=stim_mode,
                     build_slm=None,
@@ -1402,52 +1354,63 @@ class Controller:
                 for ev in planned:
                     if ev.metadata.get("img_type") == ImgType.IMG_STIM:
                         if slm is None and self._mic.dmd:
-                            # The mask comes from the frame the pipeline is
-                            # asked about: (t-1, p) in "previous" mode, (t, p)
-                            # in "current" mode. The feed loop runs a few
-                            # events ahead of the camera, so wait for that
-                            # frame to arrive before blocking on its mask.
-                            # Otherwise get_stim_mask waits out its whole
-                            # timeout for a frame that has not been shot yet
-                            # and falls through to an all-off mask.
-                            #
-                            # A frame that never arrives cannot have a mask, so
-                            # a timed-out wait skips straight to the all-off
-                            # fallback instead of spending the mask timeout
-                            # over again on a lookup that must fail.
-                            t_src = rtm_event.index.get("t", 0)
-                            if stim_mode == "previous":
-                                t_src -= 1
-                            acquired = self._wait_for_frame_acquired(
-                                t_src, rtm_event.index.get("p", 0), handle
-                            )
+                            slm = self._build_stim_slm(rtm_event, stim_mode=stim_mode)
                             if handle.cancel_event.is_set():
-                                break
-                            slm = self._build_stim_slm(
-                                rtm_event, stim_mode=stim_mode, has_mask=acquired
-                            )
+                                return
                         if slm is not None:
                             ev = ev.model_copy(update={"slm_image": slm})
-                    self._put_event(ev)
-        finally:
-            self._event_queue = None
-            self._queue.put(self.STOP_EVENT)
-            if mda_thread is not None:
-                if handle.cancel_event.is_set():
-                    # Ask the engine to drop the in-flight event so the
-                    # worker thread can exit promptly.
-                    with contextlib.suppress(Exception):
-                        self._mic.cancel_mda()
-                mda_thread.join()
-            self._mic.disconnect_frame(self._on_frame_ready)
+                    yield ev
+        except Exception as exc:
+            # Catch Exception, not BaseException: GeneratorExit must
+            # propagate so an abandoned generator closes normally.
+            if self._fatal_error is None:
+                self._fatal_error = exc
+            traceback.print_exc()
+            return
 
-        # _fatal_error from a signal-callback thread surfaces through the
-        # handle's RunStatus.fatal_error -- _run_worker reads it after we
-        # return. Re-raise so the worker's try/except can record it.
-        if self._fatal_error is not None:
-            fatal = self._fatal_error
-            self._fatal_error = None
-            raise fatal
+    def _run_wait_event(self, rtm_event: WaitEvent, handle: RunHandle) -> bool:
+        """Hold the event stream for the wait's duration; emits no MDAEvents.
+
+        Returns False when the run was cancelled during the wait. The
+        stream is strictly serial, so all prior events have already
+        completed when this runs.
+        """
+        prev = handle.status()
+        handle.update(
+            current_event_index=dict(rtm_event.index),
+            n_events_consumed=prev.n_events_consumed + 1,
+        )
+        base = self._experiment_start or time.monotonic()
+        # Anchor to whichever is later: scheduled start or now. A run
+        # behind schedule would otherwise flash through the wait.
+        scheduled_start = base + (rtm_event.min_start_time or 0)
+        deadline = max(scheduled_start, time.monotonic()) + rtm_event.duration_s
+        handle.update(state="waiting", wait_remaining_s=rtm_event.duration_s)
+        last_displayed = int(rtm_event.duration_s)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            # Throttle emissions to once per displayed second: the widget
+            # renders int(remaining), so sub-second updates only churn
+            # the Qt event queue.
+            cur = int(remaining)
+            if cur != last_displayed:
+                handle.update(wait_remaining_s=remaining)
+                last_displayed = cur
+            if handle.cancel_event.wait(min(0.1, remaining)):
+                break
+        if handle.cancel_event.is_set():
+            return False
+        # Bump n_events_acquired so the cursor stays monotonic when state
+        # leaves "waiting".
+        new_state = "pausing" if handle.pause_event.is_set() else "running"
+        handle.update(
+            state=new_state,
+            wait_remaining_s=None,
+            n_events_acquired=handle.status().n_events_acquired + 1,
+        )
+        return True
 
     # ------------------------------------------------------------------
     # Frame handling
@@ -1569,9 +1532,6 @@ class Controller:
         if len(buf) >= n_expected:
             frame = np.stack(buf, axis=0)
             del self._frame_buffers[tp]
-            # Releases the feed loop's stim gate for any stim built off (t, p).
-            with self._acquired_lock:
-                self._acquired_frames.add(tp)
             self._analyzer.run(frame, event)
 
     def _abort_mda_from_callback(self, message: str) -> None:
@@ -1592,64 +1552,70 @@ class Controller:
     # Stim helpers
     # ------------------------------------------------------------------
 
-    def _wait_for_frame_acquired(self, t: int, p: int, handle: RunHandle) -> bool:
-        """Block until imaging frame ``(t, p)`` reaches the pipeline.
+    def _build_stim_slm(self, rtm_event, *, stim_mode: str = "current") -> SLMImage:
+        """Build the SLMImage for a stim event via the Analyzer's stim-mask API.
 
-        Returns ``True`` if the frame arrived, ``False`` if the run was
-        cancelled, a fatal error aborted the MDA, or the wait timed out. The
-        frame is always queued in an earlier feed-loop iteration than the stim
-        that depends on it, so it normally arrives as soon as the engine works
-        through the queue. The timeout only bounds the pathological case where
-        it never arrives at all, so a stalled engine surfaces as the usual
-        stim-mask timeout instead of wedging the feed loop.
-        """
-        deadline = time.monotonic() + self._analyzer._stim_mask_timeout
-        while not handle.cancel_event.is_set() and self._fatal_error is None:
-            with self._acquired_lock:
-                if (t, p) in self._acquired_frames:
-                    return True
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or handle.cancel_event.wait(min(0.05, remaining)):
-                break
-        return False
-
-    def _build_stim_slm(
-        self, rtm_event, *, stim_mode: str = "current", has_mask: bool = True
-    ) -> SLMImage | None:
-        """Build SLMImage for stimulation via Analyzer's stim-mask API.
-
-        Args:
-            rtm_event: The stim event being prepared.
-            stim_mode: ``"current"`` asks for the mask produced by frame
-                ``t`` itself (stim fires after imaging). ``"previous"``
-                asks for frame ``t-1``'s mask (stim fires before imaging,
-                using the mask from the previous timepoint for the same
-                FOV).
-            has_mask: ``False`` when the source frame is known not to have
-                been acquired, so no mask can exist for it. Skips the lookup
-                and returns the all-off fallback instead of waiting out the
-                stim-mask timeout on a query that cannot succeed.
+        Runs on the MDA thread between the source frame's completion and
+        the stim event's dispatch. The source frame is ``(t-1, p)`` in
+        ``"previous"`` mode and ``(t, p)`` in ``"current"`` mode, and is
+        already in the pipeline when this runs, so the wait below covers
+        segmentation latency only. The mask request waits until
+        ``stim_mask_timeout`` seconds past the event's scheduled due time,
+        then warns and falls back to the all-off mask. A mask that arrives
+        past the due time still fires. The timeout only tunes patience; it
+        cannot cause a wrong mask.
         """
         fov_index = rtm_event.index.get("p", 0)
         stim_ch = rtm_event.stim_channels[0]
 
         t = rtm_event.index.get("t", 0)
+        t_src = t
         if stim_mode == "previous":
-            t -= 1
+            t_src -= 1
             # Previous-mode t=0 has no predecessor mask. The controller
             # passes ``suppress_stim=True`` to ``plan_events`` for that
             # case, so no stim event should reach this method with
-            # ``t < 0``.
-            assert t >= 0, "previous-mode t=0 stim event reached _build_stim_slm"
+            # ``t_src < 0``.
+            assert t_src >= 0, "previous-mode t=0 stim event reached _build_stim_slm"
         meta = {
             **rtm_event.metadata,
             "fov": fov_index,
-            "timestep": t,
+            "timestep": t_src,
         }
 
-        stim_mask = self._analyzer.get_stim_mask(fov_index, meta) if has_mask else None
+        analyzer = self._analyzer
+        t0 = time.perf_counter()
+        if analyzer is None:
+            stim_mask = None
+        elif not analyzer.stimulator_needs_data:
+            # Metadata-only stimulator (or none): resolves synchronously.
+            stim_mask = analyzer.get_stim_mask(fov_index, meta)
+        else:
+            # Data-dependent: wait on the pipeline's mask queue until
+            # ``stim_mask_timeout`` seconds past the event's due time.
+            now = time.monotonic()
+            origin = self._lag_origin
+            if origin is None:
+                origin = self._experiment_start
+            if origin is None:
+                origin = now
+            if rtm_event.min_start_time is None:
+                due = now
+            else:
+                due = origin + rtm_event.min_start_time
+            slip = analyzer._stim_mask_timeout
+            stim_mask = analyzer.get_stim_mask(
+                fov_index, meta, timeout=max(0.0, due + slip - now)
+            )
+
         if stim_mask is None:
-            print("Warning: Stimulation mask unavailable, sending False to SLM.")
+            waited = time.perf_counter() - t0
+            logger.warning(
+                "Stim mask for t=%s p=%s (source frame t=%s) unavailable "
+                "after waiting %.1f s; firing ALL-OFF fallback. See "
+                "background_errors for the reason.",
+                t, fov_index, t_src, waited,
+            )
             stim_mask = False
         elif isinstance(stim_mask, np.ndarray):
             stim_mask = self._mic.dmd.affine_transform(stim_mask)
@@ -1658,9 +1624,6 @@ class Controller:
             data=stim_mask, device=self._mic.dmd.name, exposure=stim_ch.exposure
         )
 
-    def _put_event(self, event: MDAEvent) -> None:
-        """Queue an MDA event."""
-        self._queue.put(event)
 
 
 class ControllerSimulated(Controller):
@@ -1707,8 +1670,6 @@ class ControllerSimulated(Controller):
 
         if len(buf) >= n_expected:
             del self._frame_buffers[tp]
-            with self._acquired_lock:
-                self._acquired_frames.add(tp)
             fname = meta["fname"]
             t_idx = event.index.get("t", 0)
             p_idx = event.index.get("p", 0)
