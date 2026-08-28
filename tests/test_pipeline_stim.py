@@ -393,6 +393,18 @@ class TestStimModePreviousPipelineCrashDoesNotDeadlock:
             assert event_t in (2, 3)
             assert not slm.any()
 
+    def test_fallbacks_are_counted(self):
+        # Every all-off fallback bumps the counter that _build_stim_slm
+        # stamps into RunStatus as it happens.
+        assert self.ctrl._n_stim_fallbacks == 2
+
+    def test_warnings_land_in_experiment_log(self):
+        # The run mirrors faro log records into log.txt in the experiment
+        # folder, so the fallback warnings survive the console.
+        content = open(
+            os.path.join(self.path, "log.txt"), encoding="utf-8"
+        ).read()
+        assert content.count("ALL-OFF") == 2
 
 
 class _CountingStim(StimWithPipeline):

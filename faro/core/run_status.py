@@ -2,7 +2,7 @@
 
 ``Controller.run_experiment`` returns a ``RunHandle``. The handle owns:
 
-* the worker thread driving the MDA feed loop,
+* the worker thread supervising the MDA,
 * a cooperative cancellation event,
 * an immutable ``RunStatus`` snapshot that the controller's threads update
   via :meth:`RunHandle.update`,
@@ -39,7 +39,7 @@ class RunStatus:
     """Immutable snapshot of an experiment run."""
 
     state: RunState = "pending"
-    # Latest RTMEvent index the feed loop committed to the MDA queue.
+    # Latest RTMEvent index the event stream committed to the MDA.
     current_event_index: dict[str, int] | None = None
     current_fov: int | None = None
     # Counts. Note the distinct units:
@@ -49,7 +49,7 @@ class RunStatus:
     # Widgets must compare like-with-like: progress is n_events_acquired
     # / n_events_total, NOT n_frames_received / n_events_total.
     n_events_total: int = 0          # how many RTMEvents the run was started with
-    n_events_consumed: int = 0       # RTMEvents pulled by the feed loop so far
+    n_events_consumed: int = 0       # RTMEvents pulled by the event stream so far
     n_events_acquired: int = 0       # RTMEvents whose first frame has arrived (WaitEvents bump on completion)
     n_frames_received: int = 0       # MDAEvent frames acknowledged via frameReady
     # Timing.
@@ -66,6 +66,10 @@ class RunStatus:
     # Pipeline / storage backpressure visibility (best-effort).
     pipeline_inflight: int = 0
     storage_queue_depth: int = 0
+    # A run can finish "successfully" while some stim events fired the
+    # all-off fallback mask; this counter makes that impossible to miss.
+    # The warning log carries the (t, p) locations.
+    n_stim_fallbacks: int = 0
     # Errors. ``background_errors`` accumulates analyzer-side issues; ``fatal_error``
     # is set when the worker itself raises.
     background_errors: tuple[Any, ...] = field(default_factory=tuple)
@@ -100,7 +104,7 @@ class RunHandle:
         self._thread: threading.Thread | None = None
         # Hook run synchronously on the caller's thread the first time
         # cancel() is called, before it returns. The controller uses it
-        # to wake a feed loop parked in a stim-mask wait so cancellation
+        # to wake an event stream parked in a stim-mask wait so cancellation
         # is prompt rather than bounded by the stim-mask timeout.
         self._on_cancel = on_cancel
         # Optional snapshot of the (sorted) RTMEvents this handle is driving.
@@ -133,12 +137,12 @@ class RunHandle:
     def cancel(self) -> None:
         """Request graceful cancellation. Idempotent. Does not block.
 
-        Sets the cancel event the feed loop polls on each iteration; on the
+        Sets the cancel event the event stream polls between events; on the
         next poll the loop stops feeding new events, asks the MDA engine to
         abort the in-flight event, and exits. Use ``wait()`` afterwards to
         block until the worker actually stops.
 
-        The feed loop can also be parked deep inside a blocking stim-mask
+        The event stream can also be parked deep inside a blocking stim-mask
         wait, where it cannot poll the cancel event. The ``on_cancel``
         hook (set by the controller) is invoked synchronously here to
         wake that wait, so cancellation takes effect immediately instead
@@ -146,7 +150,7 @@ class RunHandle:
         """
         first_cancel = not self._cancel_event.is_set()
         self._cancel_event.set()
-        # A cancel during pause must also release the feed loop's pause-wait.
+        # A cancel during pause must also release the event stream's pause-wait.
         self._pause_event.clear()
         if first_cancel and self._on_cancel is not None:
             try:
@@ -164,11 +168,11 @@ class RunHandle:
     def pause(self) -> None:
         """Request a graceful pause. Idempotent. Does not block.
 
-        Sets the pause event the feed loop polls before pulling each new
+        Sets the pause event the event stream polls before pulling each new
         RTMEvent. The loop finishes feeding the current event, then halts
         at the next iteration -- the MDA engine drains whatever is already
         queued, and no further events are fed until :meth:`resume`. State
-        goes ``running -> pausing`` here; the feed loop flips it to
+        goes ``running -> pausing`` here; the event stream flips it to
         ``paused`` once it actually stops.
         """
         if self._pause_event.is_set():
@@ -207,12 +211,12 @@ class RunHandle:
 
     @property
     def cancel_event(self) -> threading.Event:
-        """The cooperative-cancel event the feed loop polls. Worker-side."""
+        """The cooperative-cancel event the event stream polls. Worker-side."""
         return self._cancel_event
 
     @property
     def pause_event(self) -> threading.Event:
-        """The cooperative-pause event the feed loop polls. Worker-side."""
+        """The cooperative-pause event the event stream polls. Worker-side."""
         return self._pause_event
 
     def update(self, **updates: Any) -> RunStatus:
