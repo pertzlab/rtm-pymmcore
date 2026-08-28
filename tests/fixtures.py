@@ -199,8 +199,14 @@ def assert_no_background_errors(ctrl: Controller) -> None:
 def run_and_wait(
     ctrl: Controller, events: list[RTMEvent], stim_mode: str = "current"
 ) -> None:
-    """Run an experiment and block until the analyzer idles. Then shut down."""
-    ctrl.run_experiment(events, stim_mode=stim_mode, validate=False)
+    """Run an experiment and block until the analyzer idles. Then shut down.
+
+    ``run_experiment`` is non-blocking and creates the Analyzer on its
+    worker thread, so wait for the run to finish before touching
+    ``ctrl._analyzer``. Without the wait this races the worker and loses
+    on a loaded machine.
+    """
+    ctrl.run_experiment(events, stim_mode=stim_mode, validate=False).wait()
     ctrl._analyzer.wait_idle()
     ctrl._analyzer.shutdown(wait=True)
 
@@ -212,6 +218,6 @@ def run_and_wait_long(
     timeout: float = 120,
 ) -> None:
     """Like :func:`run_and_wait` with a longer drain timeout for slow pipelines."""
-    ctrl.run_experiment(events, stim_mode=stim_mode, validate=False)
+    ctrl.run_experiment(events, stim_mode=stim_mode, validate=False).wait()
     ctrl._analyzer.wait_idle(timeout=timeout)
     ctrl._analyzer.shutdown(wait=True)

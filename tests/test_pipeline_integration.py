@@ -137,7 +137,7 @@ class TestContinueExperimentModeMismatchRaises:
         ctrl = Controller(FakeMicroscope(CircleScene()), pipeline)
         events = make_events(2)
         try:
-            ctrl.run_experiment(events, stim_mode="current", validate=False)
+            ctrl.run_experiment(events, stim_mode="current", validate=False).wait()
             ctrl._analyzer.wait_idle()
             with pytest.raises(RuntimeError, match="stim_mode"):
                 ctrl.continue_experiment(
@@ -163,12 +163,12 @@ class TestContinueExperiment:
 
         # Phase 1
         phase1_events = make_events(N_PHASE1_FRAMES)
-        self.ctrl.run_experiment(phase1_events, validate=False)
+        self.ctrl.run_experiment(phase1_events, validate=False).wait()
         self.ctrl._analyzer.wait_idle()
 
         # Phase 2 — continue (reuses Analyzer)
         phase2_events = make_events(N_PHASE2_FRAMES)
-        self.ctrl.continue_experiment(phase2_events, validate=False)
+        self.ctrl.continue_experiment(phase2_events, validate=False).wait()
         self.ctrl._analyzer.wait_idle()
 
         self.ctrl.finish_experiment()
@@ -241,7 +241,7 @@ class TestExtendExperiment:
             self.ctrl.extend_experiment(extend_events)
 
         self.ctrl._pre_loop_hook = inject_extension
-        self.ctrl.run_experiment(initial_events, validate=False)
+        self.ctrl.run_experiment(initial_events, validate=False).wait()
 
         self.ctrl._analyzer.wait_idle()
         self.ctrl.finish_experiment()
