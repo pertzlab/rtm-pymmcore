@@ -99,7 +99,7 @@ def _run(tmp_dir: str, tracker) -> pd.DataFrame:
     scene = _DividingCellScene()
     mic = FakeMicroscope(scene)
     ctrl = Controller(mic, pipeline)
-    ctrl.run_experiment(_make_events(N_FRAMES), validate=False)
+    ctrl.run_experiment(_make_events(N_FRAMES), validate=False).wait()
     ctrl._analyzer.wait_idle()
     ctrl.finish_experiment()
     assert not ctrl.background_errors, ctrl.background_errors
