@@ -865,9 +865,16 @@ class Controller:
         Validation already ran at load time, so it is skipped here.
 
         Raises:
-            RuntimeError: If no experiment is loaded.
+            RuntimeError: If no experiment is loaded, or if the staged
+                experiment was already started (e.g. via the status
+                widget's Start button) and is still running.
         """
         if self._pending_run is None:
+            if self._current_handle is not None and self._current_handle.is_running():
+                raise RuntimeError(
+                    "Experiment already started and still running. Use "
+                    "controller.current_handle to reach it."
+                )
             raise RuntimeError(
                 "No experiment loaded. Call load_experiment(events) first."
             )
