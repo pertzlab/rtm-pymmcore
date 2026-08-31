@@ -1229,11 +1229,17 @@ class Controller:
         self._active_handle = handle
 
         # Mirror this run's log records into <storage_path>/log.txt so
-        # warnings survive the console. Records still reach the console
-        # through the package stderr handler (see faro/__init__.py).
+        # warnings survive the console. Attached to both the "faro" logger
+        # (controller + microscope warnings) and the "pymmcore-plus" logger
+        # (the MDA runner's per-event trace). Records still reach the
+        # console through the package stderr handler (see faro/__init__.py).
         # delay=True defers file creation to the first record; a failed
-        # attach must never block a run.
+        # attach must never block a run. The handler is removed when the
+        # MDA finishes, so nothing writes to the experiment folder after
+        # the run; only the "faro" level is touched, and its previous
+        # value is restored on detach.
         log_handler = None
+        prev_faro_level = logging.NOTSET
         storage_path = getattr(self._pipeline, "storage_path", None)
         if storage_path is not None:
             try:
@@ -1244,9 +1250,14 @@ class Controller:
                 log_handler.setFormatter(
                     logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
                 )
+                # The pymmcore-plus logger dispatches DEBUG records; keep
+                # log.txt at INFO (runner per-event trace and up).
+                log_handler.setLevel(logging.INFO)
                 faro_logger = logging.getLogger("faro")
+                prev_faro_level = faro_logger.level
                 faro_logger.setLevel(logging.INFO)
                 faro_logger.addHandler(log_handler)
+                logging.getLogger("pymmcore-plus").addHandler(log_handler)
             except Exception:
                 log_handler = None
                 logger.exception("Could not open log.txt in the experiment folder")
@@ -1297,7 +1308,10 @@ class Controller:
                 s.n_events_acquired, s.n_events_total, s.n_stim_fallbacks,
             )
             if log_handler is not None:
-                logging.getLogger("faro").removeHandler(log_handler)
+                faro_logger = logging.getLogger("faro")
+                faro_logger.removeHandler(log_handler)
+                faro_logger.setLevel(prev_faro_level)
+                logging.getLogger("pymmcore-plus").removeHandler(log_handler)
                 log_handler.close()
             self._active_handle = None
 
