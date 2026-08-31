@@ -66,6 +66,18 @@ class AbstractMicroscope:
         """Cancel running MDA."""
         raise NotImplementedError
 
+    def connect_sequence_canceled(self, callback: Callable[..., None]) -> None:
+        """Connect a callback that fires when the MDA runner is cancelled.
+
+        Fires for every runner cancel: faro's own :meth:`cancel_mda` and
+        external ones, like the stop button of a napari-micromanager MDA
+        widget. The Controller uses it to turn external cancels into
+        ``handle.cancel()``. The base implementation does nothing.
+        """
+
+    def disconnect_sequence_canceled(self, callback: Callable[..., None]) -> None:
+        """Disconnect a callback added with :meth:`connect_sequence_canceled`."""
+
     def resolve_group(self, config_name) -> str:
         """Return channel group for config name. Optional override."""
         return ""

@@ -1361,6 +1361,22 @@ class Controller:
         logger.info(
             "MDA run started: %d events, stim_mode=%s", len(events), stim_mode
         )
+
+        def _on_runner_canceled(*_args) -> None:
+            # Turn an external runner cancel (e.g. the stop button of a
+            # napari-micromanager MDA widget) into a faro cancel. Without
+            # this the event stream sleeps through WaitEvents and
+            # stim-mask waits, and the run ends reading "done".
+            # handle.cancel() wakes those waits. Faro's own cancel path
+            # sets cancel_event before calling cancel_mda, so this does
+            # nothing for internal cancels.
+            if not handle.cancel_event.is_set():
+                logger.info("MDA runner cancelled externally; cancelling run")
+                handle.externally_cancelled = True
+                handle.cancel()
+
+        self._mic.connect_sequence_canceled(_on_runner_canceled)
+
         mda_thread = self._mic.run_mda(
             self._event_stream(stim_mode=stim_mode, handle=handle)
         )
@@ -1381,6 +1397,8 @@ class Controller:
         finally:
             self._event_queue = None
             mda_thread.join()
+            with contextlib.suppress(Exception):
+                self._mic.disconnect_sequence_canceled(_on_runner_canceled)
             self._mic.disconnect_frame(self._on_frame_ready)
             s = handle.status()
             logger.info(

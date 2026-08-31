@@ -35,7 +35,10 @@ While an experiment is staged (``load_experiment``) the button reads
 ``Start`` and begins the run; during a run it reads ``Stop``, cancels
 the run *and* calls ``finish_experiment()`` (flush buffered frames to
 disk, drop the Analyzer) so the next run starts clean; the state banner
-shows ``STOPPING...`` for the duration.
+shows ``STOPPING...`` for the duration. A cancel from outside faro,
+e.g. the stop button of a napari-micromanager MDA widget, cancels the
+run like ``handle.cancel()`` would; call ``finish_experiment()`` (or
+start the next run) yourself afterwards.
 
 The widget subscribes to ``ctrl.runStarted`` and ``ctrl.experimentLoaded``,
 so it automatically re-binds to whichever run is current. Each
