@@ -7,9 +7,10 @@ import logging
 from typing import Optional
 from useq import MDAEvent
 from pymmcore_plus.mda._engine import MDAEngine
-from pymmcore_plus._logger import logger
 
 from faro.microscope.pymmcore import PyMMCoreMicroscope
+
+logger = logging.getLogger(__name__)
 
 
 class Jungfrau(PyMMCoreMicroscope):
@@ -80,7 +81,7 @@ class JungfrauMDAEngine(MDAEngine):
             restore_initial_state=restore_initial_state,
         )
         self._microscope_ref: Optional[weakref.ref] = None
-        self._log = logging.getLogger(self.__class__.__name__)
+        self._log = logging.getLogger(__name__)
 
     def attach_microscope(self, mic) -> None:
         """Attach the microscope instance (weakref) so engine can consult it."""

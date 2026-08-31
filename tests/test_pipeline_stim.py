@@ -10,6 +10,7 @@ stim-mask-timeout background-error recording.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterator
 
@@ -393,6 +394,35 @@ class TestStimModePreviousPipelineCrashDoesNotDeadlock:
             assert event_t in (2, 3)
             assert not slm.any()
 
+    def test_fallbacks_are_counted(self):
+        # Every all-off fallback bumps the counter that _build_stim_slm
+        # stamps into RunStatus as it happens.
+        assert self.ctrl._n_stim_fallbacks == 2
+
+    def test_warnings_land_in_experiment_log(self):
+        # The run mirrors faro log records into log.txt in the experiment
+        # folder, so the fallback warnings survive the console.
+        content = open(
+            os.path.join(self.path, "log.txt"), encoding="utf-8"
+        ).read()
+        assert content.count("ALL-OFF") == 2
+
+    def test_log_handler_detached_after_run(self):
+        # Once the MDA finished, nothing may keep writing into the
+        # experiment folder: records on the "faro" and "pymmcore-plus"
+        # loggers go only to the host's own handlers (stderr / pymmcore
+        # logfile), not log.txt.
+        log_path = os.path.join(self.path, "log.txt")
+        size_before = os.path.getsize(log_path)
+        # Any logger under the "faro" namespace stands in for the modules
+        # (controller, microscopes) that log during a run.
+        logging.getLogger("faro.microscope").warning(
+            "post-run record, must not reach log.txt"
+        )
+        logging.getLogger("pymmcore-plus").warning(
+            "post-run record, must not reach log.txt"
+        )
+        assert os.path.getsize(log_path) == size_before
 
 
 class _CountingStim(StimWithPipeline):

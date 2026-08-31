@@ -33,6 +33,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
+
 BackgroundErrorSource = Literal["storage", "deferred", "pipeline", "stim_mask"]
 
 
@@ -231,6 +232,7 @@ class Analyzer:
         msg = str(exc)
         print(f"[Analyzer] {source} error: {type(exc).__name__}: {msg}")
         print(tb)
+        logger.error("%s error: %s: %s\n%s", source, type(exc).__name__, msg, tb)
         with self._error_lock:
             self.background_errors.append(
                 BackgroundError(source, type(exc).__name__, msg, tb)
@@ -738,6 +740,12 @@ class Controller:
         self._n_channels: int = 1
         self._frame_buffers: dict[tuple, list] = {}
 
+        # Stim events that fired the all-off fallback mask this run. Stamped
+        # into RunStatus as it happens; the warning log carries the (t, p)
+        # locations.
+        self._n_stim_fallbacks: int = 0
+        self._active_handle: RunHandle | None = None
+
         # Continuation state
         self._t_offset: int = 0
         self._time_offset: float = 0.0
@@ -1217,6 +1225,43 @@ class Controller:
 
         self._mic.connect_frame(self._on_frame_ready)
 
+        self._n_stim_fallbacks = 0
+        self._active_handle = handle
+
+        # Mirror this run's log records into <storage_path>/log.txt so
+        # warnings survive the console. Attached to both the "faro" logger
+        # (controller + microscope warnings) and the "pymmcore-plus" logger
+        # (the MDA runner's per-event trace). Records still reach the
+        # console through the package stderr handler (see faro/__init__.py).
+        # delay=True defers file creation to the first record; a failed
+        # attach must never block a run. The handler is removed when the
+        # MDA finishes, so nothing writes to the experiment folder after
+        # the run; only the "faro" level is touched, and its previous
+        # value is restored on detach.
+        log_handler = None
+        prev_faro_level = logging.NOTSET
+        storage_path = getattr(self._pipeline, "storage_path", None)
+        if storage_path is not None:
+            try:
+                log_handler = logging.FileHandler(
+                    os.path.join(storage_path, "log.txt"),
+                    mode="a", encoding="utf-8", delay=True,
+                )
+                log_handler.setFormatter(
+                    logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+                )
+                # The pymmcore-plus logger dispatches DEBUG records; keep
+                # log.txt at INFO (runner per-event trace and up).
+                log_handler.setLevel(logging.INFO)
+                faro_logger = logging.getLogger("faro")
+                prev_faro_level = faro_logger.level
+                faro_logger.setLevel(logging.INFO)
+                faro_logger.addHandler(log_handler)
+                logging.getLogger("pymmcore-plus").addHandler(log_handler)
+            except Exception:
+                log_handler = None
+                logger.exception("Could not open log.txt in the experiment folder")
+
         # Set up event queue for extend_experiment support.
         # _pending_sentinels tracks how many extra batches (from
         # extend_experiment) still need to be drained.
@@ -1233,6 +1278,9 @@ class Controller:
         if self._pre_loop_hook is not None:
             self._pre_loop_hook()
 
+        logger.info(
+            "MDA run started: %d events, stim_mode=%s", len(events), stim_mode
+        )
         mda_thread = self._mic.run_mda(
             self._event_stream(stim_mode=stim_mode, handle=handle)
         )
@@ -1254,6 +1302,18 @@ class Controller:
             self._event_queue = None
             mda_thread.join()
             self._mic.disconnect_frame(self._on_frame_ready)
+            s = handle.status()
+            logger.info(
+                "MDA run finished: %d/%d events acquired, %d stim fallbacks",
+                s.n_events_acquired, s.n_events_total, s.n_stim_fallbacks,
+            )
+            if log_handler is not None:
+                faro_logger = logging.getLogger("faro")
+                faro_logger.removeHandler(log_handler)
+                faro_logger.setLevel(prev_faro_level)
+                logging.getLogger("pymmcore-plus").removeHandler(log_handler)
+                log_handler.close()
+            self._active_handle = None
 
         # A _fatal_error set from a frame callback or the event stream
         # surfaces through the handle's RunStatus.fatal_error, which
@@ -1275,6 +1335,16 @@ class Controller:
         event's source frame is therefore already in the pipeline when its
         mask is requested. This ordering holds by construction; no clock
         is involved.
+
+        The construction relies on ``MDARunner._run`` bypassing the
+        engine's ``event_iterator`` when handed an Iterator directly (as
+        this generator is), so hardware sequencing never batches these
+        events even if ``use_hardware_sequencing`` is set. Sequencing
+        would break the invariant twice: ``iter_sequenced_events`` pulls
+        ahead to find batch boundaries, and a SequencedEvent's frames
+        arrive only after the whole batch was pulled. If sequencing is
+        ever wanted, stim builds need an explicit frame-acquired gate
+        instead of pull order.
 
         Pause takes effect between RTMEvents only: the stream holds
         without yielding while paused, and min_start_times keep their
@@ -1365,7 +1435,7 @@ class Controller:
             # propagate so an abandoned generator closes normally.
             if self._fatal_error is None:
                 self._fatal_error = exc
-            traceback.print_exc()
+            logger.exception("Event stream failed; ending the MDA")
             return
 
     def _run_wait_event(self, rtm_event: WaitEvent, handle: RunHandle) -> bool:
@@ -1552,7 +1622,9 @@ class Controller:
     # Stim helpers
     # ------------------------------------------------------------------
 
-    def _build_stim_slm(self, rtm_event, *, stim_mode: str = "current") -> SLMImage:
+    def _build_stim_slm(
+        self, rtm_event, *, stim_mode: str = "current"
+    ) -> SLMImage | None:
         """Build the SLMImage for a stim event via the Analyzer's stim-mask API.
 
         Runs on the MDA thread between the source frame's completion and
@@ -1561,9 +1633,12 @@ class Controller:
         already in the pipeline when this runs, so the wait below covers
         segmentation latency only. The mask request waits until
         ``stim_mask_timeout`` seconds past the event's scheduled due time,
-        then warns and falls back to the all-off mask. A mask that arrives
-        past the due time still fires. The timeout only tunes patience; it
-        cannot cause a wrong mask.
+        then fires the all-off fallback, warns, and bumps
+        ``RunStatus.n_stim_fallbacks``. A mask that arrives past the due
+        time still fires, with a warning. The timeout only tunes
+        patience; it cannot cause a wrong mask.
+
+        Returns None only when the run was cancelled during the wait.
         """
         fov_index = rtm_event.index.get("p", 0)
         stim_ch = rtm_event.stim_channels[0]
@@ -1585,11 +1660,16 @@ class Controller:
 
         analyzer = self._analyzer
         t0 = time.perf_counter()
+        late_s = 0.0
         if analyzer is None:
             stim_mask = None
         elif not analyzer.stimulator_needs_data:
             # Metadata-only stimulator (or none): resolves synchronously.
             stim_mask = analyzer.get_stim_mask(fov_index, meta)
+            logger.debug(
+                "Stim mask for t=%s p=%s built in %.3f s",
+                t, fov_index, time.perf_counter() - t0,
+            )
         else:
             # Data-dependent: wait on the pipeline's mask queue until
             # ``stim_mask_timeout`` seconds past the event's due time.
@@ -1607,18 +1687,39 @@ class Controller:
             stim_mask = analyzer.get_stim_mask(
                 fov_index, meta, timeout=max(0.0, due + slip - now)
             )
+            late_s = time.monotonic() - due
 
+        handle = self._active_handle
+        if (
+            stim_mask is None
+            and handle is not None
+            and handle.cancel_event.is_set()
+        ):
+            return None
         if stim_mask is None:
             waited = time.perf_counter() - t0
-            logger.warning(
-                "Stim mask for t=%s p=%s (source frame t=%s) unavailable "
-                "after waiting %.1f s; firing ALL-OFF fallback. See "
-                "background_errors for the reason.",
-                t, fov_index, t_src, waited,
+            self._n_stim_fallbacks += 1
+            msg = (
+                f"Stim mask for t={t} p={fov_index} (source frame t={t_src}) "
+                f"unavailable after waiting {waited:.1f} s; firing ALL-OFF "
+                "fallback. See background_errors for the pipeline-side reason."
             )
+            logger.warning(msg)
+            print(f"[WARN] {msg}")
+            if handle is not None:
+                handle.update(n_stim_fallbacks=self._n_stim_fallbacks)
             stim_mask = False
-        elif isinstance(stim_mask, np.ndarray):
-            stim_mask = self._mic.dmd.affine_transform(stim_mask)
+        else:
+            if late_s > 0.05:
+                msg = (
+                    f"Stim mask for t={t} p={fov_index} delivered "
+                    f"{late_s:.2f} s past the event's scheduled time; "
+                    "stim fires late."
+                )
+                logger.warning(msg)
+                print(f"[WARN] {msg}")
+            if isinstance(stim_mask, np.ndarray):
+                stim_mask = self._mic.dmd.affine_transform(stim_mask)
 
         return SLMImage(
             data=stim_mask, device=self._mic.dmd.name, exposure=stim_ch.exposure

@@ -22,7 +22,7 @@ are auto-skipped without `--scope <moench|niesen|jungfrau>` (or
 | `test_pipeline_integration.py` | Happy-path end-to-end + continue/extend/no-cell edge cases. Parametrised across Trackpy/Motile. |
 | `test_pipeline_stim.py` | Stim-branch end-to-end: `current`/`previous` mode mask selection, all three stimulator shortcuts (`Stim`/`StimWithImage`/`StimWithPipeline`), stim-mask-timeout. |
 | `test_pipeline_failures.py` | Crash handling (each pipeline stage fails), slow-segmentation stress, 100-frame burst. |
-| `test_stim_gate.py` | Pull-order invariant end-to-end: a stim's source frame is in the pipeline before its mask is requested. A slow mask still fires instead of being dropped. |
+| `test_stim_gate.py` | Pull-order invariant end-to-end: a stim's source frame is in the pipeline before its mask is requested. A late mask still fires, with a warning. |
 | `test_tracking_accuracy.py` | Tracker accuracy on 50 moving cells with ground truth; stim-mask alignment. |
 | `test_tracking_divisions.py` | Cell division handling for both trackers. |
 | `test_writers.py` | TIFF + OME-Zarr schema: shapes, axis order, plate layout. |

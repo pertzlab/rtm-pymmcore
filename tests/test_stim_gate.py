@@ -7,8 +7,8 @@ event's source frame, ``(t-1, p)`` in ``previous`` mode and ``(t, p)`` in
 ``current`` mode, is therefore already in the pipeline when its mask is
 requested. The only remaining wait is segmentation latency.
 
-These tests assert the pull-order invariant end to end and that a slow
-mask still fires instead of being dropped. The all-off fallback path is
+These tests assert the pull-order invariant end to end and that a late
+mask delivery still fires, with a warning. The all-off fallback path is
 covered end to end in ``tests/test_pipeline_stim.py``.
 """
 
@@ -96,13 +96,14 @@ def test_stim_mask_requested_only_after_source_frame_submitted(
     assert [t for t, _ in builds] == list(STIM_FRAMES)
     assert [t for t, in_pipeline in builds if not in_pipeline] == []
     assert status.state == "done"
+    assert status.n_stim_fallbacks == 0
     assert len(mic.scene.slm_events) >= len(STIM_FRAMES)
 
 
-def test_slow_mask_still_fires(tmp_dir):
-    # A mask that takes ~1 s to compute arrives past the event's due time.
-    # The build waits it out and fires the real pattern instead of dropping
-    # the pulse, which is exactly the failure the pull architecture removes.
+def test_late_mask_still_fires_and_warns(tmp_dir, capsys):
+    # An unscheduled stim event is due the moment its build starts, so a
+    # mask that takes ~1 s to compute arrives late. It must still fire
+    # with the real pattern (not the fallback), with a warning.
     pipeline = make_pipeline(
         tmp_dir, tracker=_tracker(), stimulator=DelayedStimulator()
     )
@@ -111,11 +112,11 @@ def test_slow_mask_still_fires(tmp_dir):
     events = make_events(4, stim_frames=(2,))
     status = ctrl.run_experiment(events, stim_mode="current", validate=False).wait()
     ctrl._analyzer.wait_idle(timeout=120)
-    analyzer_errors = list(ctrl._analyzer.background_errors)
     ctrl._analyzer.shutdown(wait=True)
 
     assert status.state == "done"
-    assert analyzer_errors == []
+    assert status.n_stim_fallbacks == 0
     ((event_t, slm),) = mic.scene.slm_events
     assert event_t == 2
     assert slm.any()
+    assert "past the event's scheduled time" in capsys.readouterr().out

@@ -9,7 +9,6 @@ from faro.core.dmd import DMD
 from faro.core._useq_compat import SLMImage
 from pymmcore_plus.mda._engine import MDAEngine
 from typing import Optional
-from pymmcore_plus._logger import logger
 
 from useq import MDAEvent
 import os
@@ -20,6 +19,8 @@ import logging
 from pymmcore_plus.core._sequencing import SequencedEvent, iter_sequenced_events
 from contextlib import nullcontext, suppress
 
+
+logger = logging.getLogger(__name__)
 
 os.environ["PYMM_PARALLEL_INIT"] = "0"
 
@@ -668,8 +669,6 @@ class Moench(PyMMCoreMicroscope):
             Jupyter inline backend this routes to the running cell fine;
             if plots misbehave, use ``background=False`` for verbose runs.
         """
-        self.disable_log_output()
-
         if self.dmd is None:
             return
 
@@ -908,18 +907,27 @@ class Moench(PyMMCoreMicroscope):
         return bool(getattr(self, "pfs_on_at_init", False))
 
     def disable_log_output(self):
-        pymmcore_plus.configure_logging(
-            stderr_level="CRITICAL",
-            file_level="CRITICAL",
-        )
-        for logger in logging.Logger.manager.loggerDict.values():
-            if isinstance(logger, logging.Logger):
-                logger.setLevel(logging.CRITICAL)
-                logger.propagate = False
-                for h in logger.handlers[:]:
-                    logger.removeHandler(h)
+        """Opt-in: silence noisy third-party loggers (matplotlib, ...).
 
-        pymmcore_plus.configure_logging(stderr_level="WARNING")
+        No longer called automatically. The baseline is: everything flows
+        to stderr and the standard pymmcore-plus logfile from startup, and
+        each experiment additionally mirrors records into its own log.txt
+        while it runs (see Controller._run_mda_with_events). The ``faro``
+        tree and ``pymmcore-plus`` are therefore never muted here — doing
+        so would blind both the base log and the experiment log.
+        """
+        for name, other in logging.Logger.manager.loggerDict.items():
+            if (
+                name == "faro"
+                or name.startswith("faro.")
+                or name == "pymmcore-plus"
+            ):
+                continue
+            if isinstance(other, logging.Logger):
+                other.setLevel(logging.CRITICAL)
+                other.propagate = False
+                for h in other.handlers[:]:
+                    other.removeHandler(h)
 
 
 class MoenchMDAEngine(MDAEngine):
@@ -943,7 +951,7 @@ class MoenchMDAEngine(MDAEngine):
             restore_initial_state=restore_initial_state,
         )
         self._microscope_ref: Optional[weakref.ref] = None
-        self._log = logging.getLogger(self.__class__.__name__)
+        self._log = logging.getLogger(__name__)
         # Per-run PFS bookkeeping (see _set_event_z).
         self._af_handled_for_run = False
         self._af_reengage_after_run = False

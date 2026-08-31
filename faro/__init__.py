@@ -22,3 +22,21 @@
 # pick psygnal anyway. Setting this is a no-op there.
 import os
 os.environ["PYMM_SIGNALS_BACKEND"] = "psygnal"
+
+# Default console output for the "faro" logger tree, so hardware and
+# controller messages are visible without any host setup. Runs mirror
+# the same records into log.txt in the experiment folder (see
+# Controller._run_mda_with_events). propagate=False prevents double
+# printing when a host configures the root logger; hosts that want
+# custom handling can swap the handler on logging.getLogger("faro").
+import logging
+
+_faro_logger = logging.getLogger("faro")
+if not _faro_logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    _faro_logger.addHandler(_handler)
+    _faro_logger.setLevel(logging.INFO)
+    _faro_logger.propagate = False
