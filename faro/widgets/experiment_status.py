@@ -1,10 +1,19 @@
 """Qt status widget for the controller's currently-bound run.
 
-Construct with a :class:`faro.core.controller.Controller` instance::
+Construct once (optionally with a :class:`faro.core.controller.Controller`)
+and re-point it at each new controller with :meth:`set_controller`::
 
     from faro.widgets import ExperimentStatusWidget
-    widget = ExperimentStatusWidget(ctrl)
+    widget = ExperimentStatusWidget(ctrl)          # or ExperimentStatusWidget()
     viewer.window.add_dock_widget(widget, name="Experiment")
+    ...
+    widget.set_controller(new_ctrl)                # swap controllers at runtime
+
+Staging a run with ``ctrl.load_experiment(events)`` previews the plan in
+the widget (event strip, FOV map, planned duration) and turns the Stop
+button into a Start button; pressing Start calls
+``ctrl.start_experiment()``. Calling ``ctrl.run_experiment(events)``
+directly still works and starts immediately.
 
 Layout (top to bottom):
 
@@ -20,14 +29,17 @@ Layout (top to bottom):
   - Stats panels (three separate shaded frames: timing -- event N/M,
     elapsed, scheduled, lag, remaining; queues -- storage / pipeline /
     deferred depths, the bounded two drawn as fill bars; errors)
-  - Pause + Stop buttons
+  - Pause + Start/Stop buttons
 
-The Stop button cancels the run *and* calls ``finish_experiment()``
-(flush buffered frames to disk, drop the Analyzer) so the next run
-starts clean; the state banner shows ``STOPPING...`` for the duration.
+While an experiment is staged (``load_experiment``) the button reads
+``Start`` and begins the run; during a run it reads ``Stop``, cancels
+the run *and* calls ``finish_experiment()`` (flush buffered frames to
+disk, drop the Analyzer) so the next run starts clean; the state banner
+shows ``STOPPING...`` for the duration.
 
-The widget subscribes to ``ctrl.runStarted``, so it automatically re-binds
-to whichever run is current. Each ``RunHandle.statusChanged`` emission
+The widget subscribes to ``ctrl.runStarted`` and ``ctrl.experimentLoaded``,
+so it automatically re-binds to whichever run is current. Each
+``RunHandle.statusChanged`` emission
 updates the labels / strip / map; a small QTimer also refreshes the
 ``elapsed`` / ``remaining`` fields between status updates so the clock
 doesn't appear frozen between frames.
@@ -522,17 +534,27 @@ class FovMap(QWidget):
 # ─────────────────────────────────────────────────────────────────────────
 
 class ExperimentStatusWidget(QWidget):
-    """Read-out + Stop button for the controller's currently-bound run."""
+    """Read-out + Start/Stop button for the controller's currently-bound run.
 
-    def __init__(self, controller: "Controller", parent: QWidget | None = None) -> None:
+    The widget outlives individual controllers: construct it once (with
+    or without a controller), dock it, and re-point it at each new
+    controller via :meth:`set_controller`.
+    """
+
+    def __init__(
+        self, controller: "Controller | None" = None, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
-        self._controller = controller
+        self._controller: Controller | None = None
         self._handle: RunHandle | None = None
         # True while _on_stop_clicked is inside cancel()+finish_experiment();
         # _refresh keeps the state banner on "STOPPING..." for the duration.
         self._finishing = False
+        # True while an experiment is staged via load_experiment but not
+        # started -- the Start/Stop button is in "Start" mode.
+        self._loaded = False
 
-        # Cached plan derived from handle.events at run start
+        # Cached plan derived from the events list (staged or running)
         self._event_types: list[str] = []
         self._event_fovs: list[int] = []
         self._scheduled: list[float] = []
@@ -541,7 +563,8 @@ class ExperimentStatusWidget(QWidget):
         self._build_ui()
         self._refresh(None)
 
-        controller.runStarted.connect(self._on_run_started)
+        if controller is not None:
+            self.set_controller(controller)
 
         # Drain psygnal's queued callbacks via a main-thread QTimer; without
         # this, statusChanged emissions from the worker thread would sit in
@@ -656,12 +679,14 @@ class ExperimentStatusWidget(QWidget):
         queues_panel = _wrap_panel(queues_form)
         errors_panel = _wrap_panel(errors_form)
 
-        # ── Pause + Stop buttons
+        # ── Pause + Start/Stop buttons. One button plays both roles:
+        # "Start" while an experiment is staged (self._loaded), "Stop"
+        # once a run is bound.
         self._pause_btn = QPushButton("Pause")
         self._pause_btn.clicked.connect(self._on_pause_clicked)
         self._pause_btn.setEnabled(False)
-        self._stop_btn = QPushButton("Stop")
-        self._stop_btn.clicked.connect(self._on_stop_clicked)
+        self._stop_btn = QPushButton("Start")
+        self._stop_btn.clicked.connect(self._on_start_stop_clicked)
         self._stop_btn.setEnabled(False)
         button_row = QHBoxLayout()
         button_row.addStretch(1)
@@ -685,15 +710,91 @@ class ExperimentStatusWidget(QWidget):
         layout.addWidget(errors_panel)
         layout.addLayout(button_row)
 
-    # -- run binding --------------------------------------------------------
+    # -- controller / run binding --------------------------------------------
 
-    def _on_run_started(self, handle: RunHandle) -> None:
-        """Re-bind to a new run; rebuild the strip + map from its events."""
+    def set_controller(self, controller: "Controller | None") -> None:
+        """Bind the widget to *controller*, replacing any previous binding.
+
+        Lets the widget be constructed once and re-pointed at each new
+        controller instead of rebuilding it per experiment. Pass ``None``
+        to detach entirely.
+
+        On attach the widget picks up the controller's present state: a
+        run in progress (or just finished) is bound immediately, an
+        experiment staged via ``load_experiment`` is previewed, and
+        otherwise the widget renders idle.
+        """
+        if controller is self._controller:
+            return
+
+        if self._controller is not None:
+            for signal, slot in (
+                (self._controller.runStarted, self._on_run_started),
+                (self._controller.experimentLoaded, self._on_experiment_loaded),
+            ):
+                try:
+                    signal.disconnect(slot)
+                except Exception:
+                    pass
+        self._detach_handle()
+        self._loaded = False
+        self._controller = controller
+
+        if controller is None:
+            self._set_plan([])
+            self._refresh(None)
+            return
+
+        controller.runStarted.connect(self._on_run_started)
+        controller.experimentLoaded.connect(self._on_experiment_loaded)
+
+        handle = getattr(controller, "current_handle", None)
+        pending = getattr(controller, "pending_events", None)
+        if handle is not None:
+            self._on_run_started(handle)
+        elif pending:
+            self._on_experiment_loaded(pending)
+        else:
+            self._set_plan([])
+            self._refresh(None)
+
+    def _detach_handle(self) -> None:
+        """Disconnect + drop the bound RunHandle (if any)."""
         if self._handle is not None:
             try:
                 self._handle.statusChanged.disconnect(self._refresh)
             except Exception:
                 pass
+        self._handle = None
+
+    def _set_plan(self, events: Sequence) -> None:
+        """Rebuild the plan-derived widgets (strip, map, totals) from *events*."""
+        types, fovs, positions, scheduled = _extract_plan(events)
+        self._event_types = types
+        self._event_fovs = fovs
+        self._scheduled = scheduled
+        self._total_duration = scheduled[-1] if scheduled else 0.0
+        self._strip.set_types(types)
+        self._map.set_positions(positions)
+
+    def _on_experiment_loaded(self, events: Sequence) -> None:
+        """Preview a staged (loaded-but-not-started) experiment.
+
+        Shows the full event strip (all cells dimmed / future), the FOV
+        positions, the event count, and the planned duration; the
+        Start/Stop button flips to ``Start``. Any previous run's handle
+        is dropped so its final status doesn't overwrite the preview
+        from ``_tick``.
+        """
+        self._detach_handle()
+        self._loaded = True
+        self._set_plan(events or [])
+        self._render_loaded()
+
+    def _on_run_started(self, handle: RunHandle) -> None:
+        """Re-bind to a new run; rebuild the strip + map from its events."""
+        self._detach_handle()
+        self._loaded = False
 
         self._handle = handle
         # thread="main" routes worker-thread emits through psygnal's main-
@@ -703,16 +804,32 @@ class ExperimentStatusWidget(QWidget):
         handle.statusChanged.connect(self._refresh, thread="main")
 
         # Rebuild plan-derived widgets from the events list, if we have one
-        events = getattr(handle, "events", None) or []
-        types, fovs, positions, scheduled = _extract_plan(events)
-        self._event_types = types
-        self._event_fovs = fovs
-        self._scheduled = scheduled
-        self._total_duration = scheduled[-1] if scheduled else 0.0
-        self._strip.set_types(types)
-        self._map.set_positions(positions)
+        self._set_plan(getattr(handle, "events", None) or [])
 
         self._refresh(handle.status())
+
+    def _on_start_stop_clicked(self) -> None:
+        """Dispatch the Start/Stop button by mode."""
+        if self._loaded:
+            self._on_start_clicked()
+        else:
+            self._on_stop_clicked()
+
+    def _on_start_clicked(self) -> None:
+        """Start the staged experiment (button is in Start mode)."""
+        if self._controller is None or not self._loaded:
+            return
+        # start_experiment -> run_experiment emits runStarted synchronously,
+        # so _on_run_started rebinds the widget (and flips the button back
+        # to Stop) before this returns. Disable up front against re-entry.
+        self._stop_btn.setEnabled(False)
+        try:
+            self._controller.start_experiment()
+        except BaseException as exc:  # noqa: BLE001 - surface, don't crash the slot
+            import traceback
+            traceback.print_exc()
+            self._state_label.setText(f"START FAILED: {type(exc).__name__}")
+            self._stop_btn.setEnabled(True)
 
     def _on_stop_clicked(self) -> None:
         """Cancel the run, then finish the experiment.
@@ -724,7 +841,7 @@ class ExperimentStatusWidget(QWidget):
         napari stays responsive; the state banner reads ``STOPPING...``
         until it returns.
         """
-        if self._handle is None or self._finishing:
+        if self._handle is None or self._controller is None or self._finishing:
             return
         self._finishing = True
         # Disable both buttons up front: finish_experiment() blocks this
@@ -836,7 +953,12 @@ class ExperimentStatusWidget(QWidget):
             self._update_buttons(status.state)
 
     def _update_buttons(self, state: str) -> None:
-        """Enable/label Pause + Stop according to the run state."""
+        """Enable/label Pause + Start/Stop according to the run state.
+
+        Only called while a run handle is bound, so the Start/Stop
+        button is always in Stop mode here; Start mode is set by
+        ``_render_loaded``.
+        """
         live = state in ("running", "pausing", "paused", "waiting")
         self._pause_btn.setEnabled(live)
         # Drive the label off pause_event so a click during "waiting"
@@ -844,6 +966,7 @@ class ExperimentStatusWidget(QWidget):
         # until the wait completes.
         paused = self._handle is not None and self._handle.is_paused()
         self._pause_btn.setText("Resume" if paused else "Pause")
+        self._stop_btn.setText("Stop")
         self._stop_btn.setEnabled(live)
 
     def _render_idle(self) -> None:
@@ -861,7 +984,35 @@ class ExperimentStatusWidget(QWidget):
         self._render_queue_fields()
         self._pause_btn.setEnabled(False)
         self._pause_btn.setText("Pause")
+        self._stop_btn.setText("Start")
         self._stop_btn.setEnabled(False)
+
+    def _render_loaded(self) -> None:
+        """Static preview of a staged experiment (no live run to poll).
+
+        The strip shows every event at future alpha, the map shows all
+        FOV positions, ``remaining`` shows the planned total duration,
+        and the Start/Stop button reads ``Start``.
+        """
+        n = len(self._event_types)
+        self._state_label.setText("LOADED (ready to start)")
+        self._strip.set_current(-1)
+        self._map.set_current(-1)
+        self._update_legend(active_type=None)
+        self._event_value.setText(f"0 / {n}" if n else "-/-")
+        for w in (self._elapsed_value, self._scheduled_value, self._lag_value):
+            w.setText("-")
+        self._lag_value.setStyleSheet("")
+        self._remaining_value.setText(
+            format_duration(self._total_duration) if self._total_duration else "-"
+        )
+        self._errors_value.setText("-")
+        self._errors_value.setStyleSheet("")
+        self._render_queue_fields()
+        self._pause_btn.setEnabled(False)
+        self._pause_btn.setText("Pause")
+        self._stop_btn.setText("Start")
+        self._stop_btn.setEnabled(True)
 
     @staticmethod
     def _current_index(status: RunStatus) -> int:
@@ -942,7 +1093,11 @@ class ExperimentStatusWidget(QWidget):
         finish_experiment() runs. Shows empty "-" bars when no experiment
         is active.
         """
-        stats = self._controller.queue_stats()
+        stats = (
+            self._controller.queue_stats()
+            if self._controller is not None
+            else None
+        )
         if stats is None:
             self._set_queue_bar(self._storage_bar, 0, 0)
             self._set_queue_bar(self._pipeline_bar, 0, 0)

@@ -716,6 +716,11 @@ class Controller:
     # they can re-bind to whichever run is current.
     runStarted = Signal(object)
 
+    # Emitted by ``load_experiment`` with the validated, sorted events list.
+    # Status widgets subscribe to preview the run plan (event strip, FOV
+    # map, planned duration) before the acquisition is started.
+    experimentLoaded = Signal(object)
+
     def __init__(self, mic, pipeline, *, writer: Writer | None = None):
         """
         Args:
@@ -769,6 +774,10 @@ class Controller:
         # The worker thread owns it; status update sites use it via this attr.
         self._current_handle: RunHandle | None = None
 
+        # Staged (loaded-but-not-started) experiment: set by
+        # load_experiment, consumed by start_experiment. (events, stim_mode).
+        self._pending_run: tuple[list, str] | None = None
+
         # (p, t) index of the RTMEvent whose frames are currently arriving.
         # _bump_status_for_frame uses it to detect RTMEvent boundaries so
         # n_events_acquired / lag update once per RTMEvent, not per frame.
@@ -796,6 +805,75 @@ class Controller:
             ok = self._pipeline.validate_pipeline(events) and ok
         ok = self._mic.validate_hardware(events) and ok
         return ok
+
+    @property
+    def current_handle(self) -> RunHandle | None:
+        """Handle of the current / most recent run (None before the first).
+
+        Lets a status widget attached mid-run (or re-pointed at this
+        controller via ``set_controller``) bind to the run in progress.
+        """
+        return self._current_handle
+
+    @property
+    def pending_events(self) -> list | None:
+        """Events staged via :meth:`load_experiment` but not yet started."""
+        return self._pending_run[0] if self._pending_run is not None else None
+
+    def load_experiment(
+        self, events, *, stim_mode="current", validate=True
+    ) -> list:
+        """Validate and stage an experiment without starting it.
+
+        The events are validated and sorted exactly as
+        :meth:`run_experiment` would, stored on the controller, and
+        announced via the ``experimentLoaded`` signal so status widgets
+        can preview the plan (event strip, FOV positions, planned
+        duration). Call :meth:`start_experiment` — or press the status
+        widget's Start button — to begin acquisition.
+
+        Loading replaces any previously staged (unstarted) experiment;
+        calling ``run_experiment`` / ``continue_experiment`` directly
+        also discards the staged one. Continuations can't be staged this
+        way — their events must be offset against the *finished* prior
+        run, so call ``continue_experiment`` directly.
+
+        Returns the sorted events list (what widgets will display).
+
+        Raises:
+            RuntimeError: If a run is still in progress.
+            ValueError: If ``validate=True`` and events fail validation.
+        """
+        self._require_no_active_run()
+        events = list(events)
+        if validate:
+            if not self.validate_events(events):
+                raise ValueError(
+                    "Event validation failed (see warnings above). "
+                    "Fix the issues or pass validate=False to skip."
+                )
+        events = sorted(
+            events, key=lambda e: (e.min_start_time or 0, e.index.get("p", 0))
+        )
+        self._pending_run = (events, stim_mode)
+        self.experimentLoaded.emit(events)
+        return events
+
+    def start_experiment(self) -> RunHandle:
+        """Start the experiment staged by :meth:`load_experiment`.
+
+        Validation already ran at load time, so it is skipped here.
+
+        Raises:
+            RuntimeError: If no experiment is loaded.
+        """
+        if self._pending_run is None:
+            raise RuntimeError(
+                "No experiment loaded. Call load_experiment(events) first."
+            )
+        events, stim_mode = self._pending_run
+        self._pending_run = None
+        return self.run_experiment(events, stim_mode=stim_mode, validate=False)
 
     def run_experiment(
         self, events, *, stim_mode="current", validate=True
@@ -826,6 +904,7 @@ class Controller:
             ValueError: If ``validate=True`` and events fail validation.
         """
         self._require_no_active_run()
+        self._pending_run = None  # a direct run supersedes any staged load
         events = list(events)
         if validate:
             if not self.validate_events(events):
@@ -875,6 +954,7 @@ class Controller:
             ValueError: If ``validate=True`` and events fail validation.
         """
         self._require_no_active_run()
+        self._pending_run = None  # a direct run supersedes any staged load
         if self._analyzer is None:
             raise RuntimeError(
                 "No experiment to continue. Call run_experiment() first."

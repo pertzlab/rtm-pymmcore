@@ -258,10 +258,14 @@ handle.pause(); handle.resume()   # stop/resume acquiring; schedule is preserved
 handle.cancel()                   # graceful stop
 handle.wait()                     # block until done
 
-# Live status badge, progress strip, and Pause/Stop buttons in napari:
+# Live status badge, progress strip, and Pause/Start/Stop buttons in napari:
 from faro.widgets import ExperimentStatusWidget
-viewer.window.add_dock_widget(ExperimentStatusWidget(ctrl), area="right")
+status_wdg = ExperimentStatusWidget(ctrl)   # or ExperimentStatusWidget()
+viewer.window.add_dock_widget(status_wdg, area="right")
+status_wdg.set_controller(new_ctrl)         # reusable: swap controllers at runtime
 ```
+
+Instead of starting immediately with `run_experiment`, an experiment can be **staged** first: `ctrl.load_experiment(events, stim_mode="current")` validates the events and previews the plan in the status widget (event strip, FOV map, planned duration) without acquiring anything. The widget's button reads **Start** while staged — pressing it (or calling `ctrl.start_experiment()`) begins the run, and the button flips back to **Stop**.
 
 ### Experiment Continuation
 
