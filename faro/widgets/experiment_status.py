@@ -712,6 +712,24 @@ class ExperimentStatusWidget(QWidget):
 
     # -- controller / run binding --------------------------------------------
 
+    @property
+    def handle(self) -> RunHandle | None:
+        """The RunHandle of the run the widget is currently bound to.
+
+        Lets code reach a run that was started from the UI's Start
+        button, e.g. ``status_wdg.handle.wait()``. None while no run is
+        bound (idle, or an experiment staged but not started); stays set
+        after the run finishes, until the next load / controller swap.
+        Equivalent to ``controller.current_handle`` on the bound
+        controller.
+        """
+        return self._handle
+
+    @property
+    def controller(self) -> "Controller | None":
+        """The Controller the widget is bound to (None when detached)."""
+        return self._controller
+
     def set_controller(self, controller: "Controller | None") -> None:
         """Bind the widget to *controller*, replacing any previous binding.
 
