@@ -909,11 +909,20 @@ class Moench(PyMMCoreMicroscope):
         return bool(getattr(self, "pfs_on_at_init", False))
 
     def disable_log_output(self):
+        """Silence noisy third-party loggers (pymmcore, matplotlib, ...).
+
+        The ``faro`` tree is spared: calibrate_dmd() calls this at the
+        start of every session, and muting faro would silence the hardware
+        and stim-fallback warnings that the per-experiment log.txt and the
+        package stderr handler exist to capture.
+        """
         pymmcore_plus.configure_logging(
             stderr_level="CRITICAL",
             file_level="CRITICAL",
         )
-        for other in logging.Logger.manager.loggerDict.values():
+        for name, other in logging.Logger.manager.loggerDict.items():
+            if name == "faro" or name.startswith("faro."):
+                continue
             if isinstance(other, logging.Logger):
                 other.setLevel(logging.CRITICAL)
                 other.propagate = False

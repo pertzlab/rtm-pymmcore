@@ -1336,6 +1336,16 @@ class Controller:
         mask is requested. This ordering holds by construction; no clock
         is involved.
 
+        The construction relies on ``MDARunner._run`` bypassing the
+        engine's ``event_iterator`` when handed an Iterator directly (as
+        this generator is), so hardware sequencing never batches these
+        events even if ``use_hardware_sequencing`` is set. Sequencing
+        would break the invariant twice: ``iter_sequenced_events`` pulls
+        ahead to find batch boundaries, and a SequencedEvent's frames
+        arrive only after the whole batch was pulled. If sequencing is
+        ever wanted, stim builds need an explicit frame-acquired gate
+        instead of pull order.
+
         Pause takes effect between RTMEvents only: the stream holds
         without yielding while paused, and min_start_times keep their
         values on resume, so late events catch up. The body records any
