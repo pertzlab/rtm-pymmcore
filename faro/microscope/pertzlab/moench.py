@@ -9,7 +9,6 @@ from faro.core.dmd import DMD
 from faro.core._useq_compat import SLMImage
 from pymmcore_plus.mda._engine import MDAEngine
 from typing import Optional
-from pymmcore_plus._logger import logger
 
 from useq import MDAEvent
 import os
@@ -20,6 +19,8 @@ import logging
 from pymmcore_plus.core._sequencing import SequencedEvent, iter_sequenced_events
 from contextlib import nullcontext, suppress
 
+
+logger = logging.getLogger(__name__)
 
 os.environ["PYMM_PARALLEL_INIT"] = "0"
 
@@ -912,12 +913,12 @@ class Moench(PyMMCoreMicroscope):
             stderr_level="CRITICAL",
             file_level="CRITICAL",
         )
-        for logger in logging.Logger.manager.loggerDict.values():
-            if isinstance(logger, logging.Logger):
-                logger.setLevel(logging.CRITICAL)
-                logger.propagate = False
-                for h in logger.handlers[:]:
-                    logger.removeHandler(h)
+        for other in logging.Logger.manager.loggerDict.values():
+            if isinstance(other, logging.Logger):
+                other.setLevel(logging.CRITICAL)
+                other.propagate = False
+                for h in other.handlers[:]:
+                    other.removeHandler(h)
 
         pymmcore_plus.configure_logging(stderr_level="WARNING")
 
@@ -943,7 +944,7 @@ class MoenchMDAEngine(MDAEngine):
             restore_initial_state=restore_initial_state,
         )
         self._microscope_ref: Optional[weakref.ref] = None
-        self._log = logging.getLogger(self.__class__.__name__)
+        self._log = logging.getLogger(__name__)
         # Per-run PFS bookkeeping (see _set_event_z).
         self._af_handled_for_run = False
         self._af_reengage_after_run = False

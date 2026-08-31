@@ -1229,9 +1229,10 @@ class Controller:
         self._active_handle = handle
 
         # Mirror this run's log records into <storage_path>/log.txt so
-        # warnings survive the console. Records still propagate to the
-        # host application's handlers. delay=True defers file creation to
-        # the first record; a failed attach must never block a run.
+        # warnings survive the console. Records still reach the console
+        # through the package stderr handler (see faro/__init__.py).
+        # delay=True defers file creation to the first record; a failed
+        # attach must never block a run.
         log_handler = None
         storage_path = getattr(self._pipeline, "storage_path", None)
         if storage_path is not None:
