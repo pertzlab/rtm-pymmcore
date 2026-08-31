@@ -4,7 +4,13 @@ import networkx as nx
 from scipy.spatial import cKDTree
 
 import motile
-from motile.costs import EdgeDistance, Appear, Disappear, NodeSelection, Split
+from motile.costs import (
+    EdgeDistanceCost,
+    NodeAppearCost,
+    NodeDisappearCost,
+    NodeSelectedCost,
+    NodeSplitCost,
+)
 from motile.constraints import MaxParents, MaxChildren
 from motile.variables import EdgeSelected
 
@@ -93,9 +99,9 @@ class TrackerMotile(Tracker):
 
         Supported keys:
 
-        - ``"split"``     — modulates :class:`motile.costs.Split`
+        - ``"split"``     — modulates :class:`motile.costs.NodeSplitCost`
                             (negative rewards divisions).
-        - ``"disappear"`` — modulates :class:`motile.costs.Disappear`
+        - ``"disappear"`` — modulates :class:`motile.costs.NodeDisappearCost`
                             (negative allows cheap track loss, e.g. death).
 
         Default: no modulation (empty dict).
@@ -200,11 +206,11 @@ class TrackerMotile(Tracker):
 
         tg = motile.TrackGraph(G, frame_attribute="t")
         solver = motile.Solver(tg)
-        solver.add_cost(EdgeDistance(position_attribute="pos", weight=1.0))
-        solver.add_cost(NodeSelection(constant=self.node_selection_cost))
-        solver.add_cost(Appear(constant=self.appear_cost))
+        solver.add_cost(EdgeDistanceCost(position_attribute="pos", weight=1.0))
+        solver.add_cost(NodeSelectedCost(constant=self.node_selection_cost))
+        solver.add_cost(NodeAppearCost(constant=self.appear_cost))
         solver.add_cost(
-            Disappear(
+            NodeDisappearCost(
                 weight=1.0,
                 attribute=_CUSTOM_COST_ATTR["disappear"],
                 constant=self.disappear_cost,
@@ -212,7 +218,7 @@ class TrackerMotile(Tracker):
         )
         if self.max_children > 1:
             solver.add_cost(
-                Split(
+                NodeSplitCost(
                     weight=1.0,
                     attribute=_CUSTOM_COST_ATTR["split"],
                     constant=self.split_cost,
