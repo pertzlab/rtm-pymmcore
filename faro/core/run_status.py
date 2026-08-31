@@ -113,6 +113,13 @@ class RunHandle:
         # ``None`` keeps backward-compat with callers that construct
         # RunHandle directly without an events list.
         self.events: list | None = list(events) if events is not None else None
+        # True when the cancel came from outside faro, e.g. the stop
+        # button of a napari-micromanager MDA widget calling
+        # mmc.mda.cancel() directly. The controller sets this before it
+        # forwards the cancel to this handle, so callers can tell the
+        # two apart. The experiment stays open either way; call
+        # finish_experiment() to tear it down.
+        self.externally_cancelled: bool = False
 
     # -- public API ---------------------------------------------------------
 

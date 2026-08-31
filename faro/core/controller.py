@@ -716,6 +716,11 @@ class Controller:
     # they can re-bind to whichever run is current.
     runStarted = Signal(object)
 
+    # Emitted by ``load_experiment`` with the validated, sorted events list.
+    # Status widgets subscribe to preview the run plan (event strip, FOV
+    # map, planned duration) before the acquisition is started.
+    experimentLoaded = Signal(object)
+
     def __init__(self, mic, pipeline, *, writer: Writer | None = None):
         """
         Args:
@@ -769,6 +774,10 @@ class Controller:
         # The worker thread owns it; status update sites use it via this attr.
         self._current_handle: RunHandle | None = None
 
+        # Staged (loaded-but-not-started) experiment: set by
+        # load_experiment, consumed by start_experiment. (events, stim_mode).
+        self._pending_run: tuple[list, str] | None = None
+
         # (p, t) index of the RTMEvent whose frames are currently arriving.
         # _bump_status_for_frame uses it to detect RTMEvent boundaries so
         # n_events_acquired / lag update once per RTMEvent, not per frame.
@@ -796,6 +805,80 @@ class Controller:
             ok = self._pipeline.validate_pipeline(events) and ok
         ok = self._mic.validate_hardware(events) and ok
         return ok
+
+    @property
+    def current_handle(self) -> RunHandle | None:
+        """Handle of the current or most recent run, None before the first.
+
+        Lets a status widget attached mid-run bind to the run in progress.
+        """
+        return self._current_handle
+
+    @property
+    def pending_events(self) -> list | None:
+        """Events staged via :meth:`load_experiment` but not yet started."""
+        return self._pending_run[0] if self._pending_run is not None else None
+
+    def load_experiment(
+        self, events, *, stim_mode="current", validate=True
+    ) -> list:
+        """Validate and stage an experiment without starting it.
+
+        Validates and sorts the events exactly like :meth:`run_experiment`,
+        stores the plan, and emits the ``experimentLoaded`` signal so
+        status widgets can preview it (event strip, FOV positions,
+        planned duration). Start it with :meth:`start_experiment` or the
+        widget's Start button.
+
+        Loading replaces a previously staged experiment, and a direct
+        ``run_experiment`` / ``continue_experiment`` call discards it.
+        Continuations cannot be staged: their events must be offset
+        against the finished prior run, so call ``continue_experiment``
+        directly.
+
+        Returns the sorted events list.
+
+        Raises:
+            RuntimeError: If a run is still in progress.
+            ValueError: If ``validate=True`` and events fail validation.
+        """
+        self._require_no_active_run()
+        events = list(events)
+        if validate:
+            if not self.validate_events(events):
+                raise ValueError(
+                    "Event validation failed (see warnings above). "
+                    "Fix the issues or pass validate=False to skip."
+                )
+        events = sorted(
+            events, key=lambda e: (e.min_start_time or 0, e.index.get("p", 0))
+        )
+        self._pending_run = (events, stim_mode)
+        self.experimentLoaded.emit(events)
+        return events
+
+    def start_experiment(self) -> RunHandle:
+        """Start the experiment staged by :meth:`load_experiment`.
+
+        Validation already ran at load time, so it is skipped here.
+
+        Raises:
+            RuntimeError: If no experiment is loaded, or if the staged
+                experiment was already started (e.g. via the status
+                widget's Start button) and is still running.
+        """
+        if self._pending_run is None:
+            if self._current_handle is not None and self._current_handle.is_running():
+                raise RuntimeError(
+                    "Experiment already started and still running. Use "
+                    "controller.current_handle to reach it."
+                )
+            raise RuntimeError(
+                "No experiment loaded. Call load_experiment(events) first."
+            )
+        events, stim_mode = self._pending_run
+        self._pending_run = None
+        return self.run_experiment(events, stim_mode=stim_mode, validate=False)
 
     def run_experiment(
         self, events, *, stim_mode="current", validate=True
@@ -826,6 +909,7 @@ class Controller:
             ValueError: If ``validate=True`` and events fail validation.
         """
         self._require_no_active_run()
+        self._pending_run = None  # a direct run supersedes any staged load
         events = list(events)
         if validate:
             if not self.validate_events(events):
@@ -875,6 +959,7 @@ class Controller:
             ValueError: If ``validate=True`` and events fail validation.
         """
         self._require_no_active_run()
+        self._pending_run = None  # a direct run supersedes any staged load
         if self._analyzer is None:
             raise RuntimeError(
                 "No experiment to continue. Call run_experiment() first."
@@ -1281,6 +1366,22 @@ class Controller:
         logger.info(
             "MDA run started: %d events, stim_mode=%s", len(events), stim_mode
         )
+
+        def _on_runner_canceled(*_args) -> None:
+            # Turn an external runner cancel (e.g. the stop button of a
+            # napari-micromanager MDA widget) into a faro cancel. Without
+            # this the event stream sleeps through WaitEvents and
+            # stim-mask waits, and the run ends reading "done".
+            # handle.cancel() wakes those waits. Faro's own cancel path
+            # sets cancel_event before calling cancel_mda, so this does
+            # nothing for internal cancels.
+            if not handle.cancel_event.is_set():
+                logger.info("MDA runner cancelled externally; cancelling run")
+                handle.externally_cancelled = True
+                handle.cancel()
+
+        self._mic.connect_sequence_canceled(_on_runner_canceled)
+
         mda_thread = self._mic.run_mda(
             self._event_stream(stim_mode=stim_mode, handle=handle)
         )
@@ -1301,6 +1402,8 @@ class Controller:
         finally:
             self._event_queue = None
             mda_thread.join()
+            with contextlib.suppress(Exception):
+                self._mic.disconnect_sequence_canceled(_on_runner_canceled)
             self._mic.disconnect_frame(self._on_frame_ready)
             s = handle.status()
             logger.info(

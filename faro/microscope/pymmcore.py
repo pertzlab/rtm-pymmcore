@@ -87,6 +87,12 @@ class PyMMCoreMicroscope(AbstractMicroscope):
     def cancel_mda(self):
         self.mmc.mda.cancel()
 
+    def connect_sequence_canceled(self, callback):
+        self.mmc.mda.events.sequenceCanceled.connect(callback)
+
+    def disconnect_sequence_canceled(self, callback):
+        self.mmc.mda.events.sequenceCanceled.disconnect(callback)
+
     def resolve_group(self, config_name: str) -> str:
         """Return the channel group for *config_name*, auto-detecting if needed."""
         if self._current_group is None:
