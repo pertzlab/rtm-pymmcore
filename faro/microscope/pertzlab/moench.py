@@ -669,8 +669,6 @@ class Moench(PyMMCoreMicroscope):
             Jupyter inline backend this routes to the running cell fine;
             if plots misbehave, use ``background=False`` for verbose runs.
         """
-        self.disable_log_output()
-
         if self.dmd is None:
             return
 
@@ -909,27 +907,27 @@ class Moench(PyMMCoreMicroscope):
         return bool(getattr(self, "pfs_on_at_init", False))
 
     def disable_log_output(self):
-        """Silence noisy third-party loggers (pymmcore, matplotlib, ...).
+        """Opt-in: silence noisy third-party loggers (matplotlib, ...).
 
-        The ``faro`` tree is spared: calibrate_dmd() calls this at the
-        start of every session, and muting faro would silence the hardware
-        and stim-fallback warnings that the per-experiment log.txt and the
-        package stderr handler exist to capture.
+        No longer called automatically. The baseline is: everything flows
+        to stderr and the standard pymmcore-plus logfile from startup, and
+        each experiment additionally mirrors records into its own log.txt
+        while it runs (see Controller._run_mda_with_events). The ``faro``
+        tree and ``pymmcore-plus`` are therefore never muted here — doing
+        so would blind both the base log and the experiment log.
         """
-        pymmcore_plus.configure_logging(
-            stderr_level="CRITICAL",
-            file_level="CRITICAL",
-        )
         for name, other in logging.Logger.manager.loggerDict.items():
-            if name == "faro" or name.startswith("faro."):
+            if (
+                name == "faro"
+                or name.startswith("faro.")
+                or name == "pymmcore-plus"
+            ):
                 continue
             if isinstance(other, logging.Logger):
                 other.setLevel(logging.CRITICAL)
                 other.propagate = False
                 for h in other.handlers[:]:
                     other.removeHandler(h)
-
-        pymmcore_plus.configure_logging(stderr_level="WARNING")
 
 
 class MoenchMDAEngine(MDAEngine):
