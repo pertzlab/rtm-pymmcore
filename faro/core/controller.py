@@ -808,10 +808,9 @@ class Controller:
 
     @property
     def current_handle(self) -> RunHandle | None:
-        """Handle of the current / most recent run (None before the first).
+        """Handle of the current or most recent run, None before the first.
 
-        Lets a status widget attached mid-run (or re-pointed at this
-        controller via ``set_controller``) bind to the run in progress.
+        Lets a status widget attached mid-run bind to the run in progress.
         """
         return self._current_handle
 
@@ -825,20 +824,19 @@ class Controller:
     ) -> list:
         """Validate and stage an experiment without starting it.
 
-        The events are validated and sorted exactly as
-        :meth:`run_experiment` would, stored on the controller, and
-        announced via the ``experimentLoaded`` signal so status widgets
-        can preview the plan (event strip, FOV positions, planned
-        duration). Call :meth:`start_experiment` — or press the status
-        widget's Start button — to begin acquisition.
+        Validates and sorts the events exactly like :meth:`run_experiment`,
+        stores the plan, and emits the ``experimentLoaded`` signal so
+        status widgets can preview it (event strip, FOV positions,
+        planned duration). Start it with :meth:`start_experiment` or the
+        widget's Start button.
 
-        Loading replaces any previously staged (unstarted) experiment;
-        calling ``run_experiment`` / ``continue_experiment`` directly
-        also discards the staged one. Continuations can't be staged this
-        way — their events must be offset against the *finished* prior
-        run, so call ``continue_experiment`` directly.
+        Loading replaces a previously staged experiment, and a direct
+        ``run_experiment`` / ``continue_experiment`` call discards it.
+        Continuations cannot be staged: their events must be offset
+        against the finished prior run, so call ``continue_experiment``
+        directly.
 
-        Returns the sorted events list (what widgets will display).
+        Returns the sorted events list.
 
         Raises:
             RuntimeError: If a run is still in progress.

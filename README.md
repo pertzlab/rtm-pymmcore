@@ -265,7 +265,7 @@ viewer.window.add_dock_widget(status_wdg, area="right")
 status_wdg.set_controller(new_ctrl)         # reusable: swap controllers at runtime
 ```
 
-Instead of starting immediately with `run_experiment`, an experiment can be **staged** first: `ctrl.load_experiment(events, stim_mode="current")` validates the events and previews the plan in the status widget (event strip, FOV map, planned duration) without acquiring anything. The widget's button reads **Start** while staged — pressing it (or calling `ctrl.start_experiment()`) begins the run, and the button flips back to **Stop**.
+Instead of starting immediately with `run_experiment`, you can **stage** an experiment first: `ctrl.load_experiment(events, stim_mode="current")` validates the events and previews the plan in the status widget (event strip, FOV map, planned duration) without acquiring anything. The widget's button reads **Start** while staged. Press it, or call `ctrl.start_experiment()`, to begin the run; the button then flips back to **Stop**.
 
 ### Experiment Continuation
 
