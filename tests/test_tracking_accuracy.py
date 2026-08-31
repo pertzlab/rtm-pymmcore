@@ -207,7 +207,7 @@ def _run_pipeline(
         _make_events(n_frames, stim_frames=stim_frames),
         stim_mode=stim_mode,
         validate=False,
-    )
+    ).wait()
     ctrl._analyzer.wait_idle()
     ctrl.finish_experiment()
 

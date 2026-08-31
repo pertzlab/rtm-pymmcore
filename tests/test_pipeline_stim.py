@@ -364,7 +364,7 @@ class TestStimModePreviousPipelineCrashDoesNotDeadlock:
     """If frame t's pipeline crashes inside the stim branch, the try/finally
     must call ``skip_frame`` on stim_mask_queue so frame t+1's "previous"-mode
     consumer sees a skipped predecessor (None) rather than blocking until
-    the 80 s timeout. Reuses the existing ``CrashingStimulator``.
+    the stim-mask timeout. Reuses the existing ``CrashingStimulator``.
     """
 
     @pytest.fixture(autouse=True)
@@ -392,6 +392,7 @@ class TestStimModePreviousPipelineCrashDoesNotDeadlock:
         for event_t, slm in self.mic.scene.slm_events:
             assert event_t in (2, 3)
             assert not slm.any()
+
 
 
 class _CountingStim(StimWithPipeline):
