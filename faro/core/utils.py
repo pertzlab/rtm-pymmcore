@@ -21,7 +21,13 @@ from pathlib import Path
 
 _TRACK_COLS_FOR_PARTICLES = frozenset({"fname", "label", "particle"})
 
-FovPosition = namedtuple("FovPosition", ["x", "y", "z", "name"])
+# plate_row/plate_col are the useq well indices (0-based) when the position
+# was assigned to a well in the position table / stage map; None otherwise.
+FovPosition = namedtuple(
+    "FovPosition",
+    ["x", "y", "z", "name", "plate_row", "plate_col"],
+    defaults=(None, None),
+)
 
 
 def print_configs(mmc):
@@ -375,12 +381,35 @@ def generate_fov_positions_from_list(mic, data_mda_fovs):
     for i, fov in enumerate(data_mda_fovs):
         z = None if getattr(mic, "USE_ONLY_PFS", False) else fov.get("z")
         name = str(i) if fov.get("name") is None else fov["name"]
-        fovs.append(FovPosition(x=fov.get("x"), y=fov.get("y"), z=z, name=name))
+        fovs.append(
+            FovPosition(
+                x=fov.get("x"),
+                y=fov.get("y"),
+                z=z,
+                name=name,
+                plate_row=fov.get("plate_row"),
+                plate_col=fov.get("plate_col"),
+            )
+        )
     return fovs
 
 
 # Backwards-compat alias
 generate_fov_objects_from_list = generate_fov_positions_from_list
+
+
+def _well_columns(fov) -> dict:
+    """Return plate_row/plate_col df_acquire columns for a FOV.
+
+    Empty dict when the FOV has no well assignment, so runs without wells get
+    no well columns at all (rows from FOVs without a well hold NaN in mixed
+    runs).
+    """
+    plate_row = getattr(fov, "plate_row", None)
+    plate_col = getattr(fov, "plate_col", None)
+    if plate_row is None or plate_col is None:
+        return {}
+    return {"plate_row": plate_row, "plate_col": plate_col}
 
 
 def generate_fov_positions(mic, viewer=None, filename=None, fake_fovs=None):
@@ -408,6 +437,7 @@ def generate_df_acquire_simple(
 ):
     dfs = []
     for fov_index, fov in enumerate(fovs):
+        well = _well_columns(fov)
         for timestep in range(n_frames):
             dfs.append(
                 {
@@ -416,6 +446,7 @@ def generate_df_acquire_simple(
                     "fov_y": fov.y,
                     "fov_z": fov.z,
                     "fov_name": fov.name,
+                    **well,
                     "timestep": timestep,
                     "time": start_time + timestep * time_between_timesteps,
                     "channels": tuple(dataclasses.asdict(ch) for ch in channels),
@@ -461,6 +492,7 @@ def generate_df_acquire(
             condition_fov = condition[0]
         else:
             condition_fov = condition[fov_index]
+        well = _well_columns(fov)
         for timestep in timesteps:
             if phase_id is not None:
                 fname = f"{str(fov_index).zfill(3)}_{str(phase_id).zfill(2)}_{str(timestep).zfill(5)}"
@@ -472,6 +504,7 @@ def generate_df_acquire(
                 "fov_y": fov.y,
                 "fov_z": fov.z,
                 "fov_name": fov.name,
+                **well,
                 "timestep": timestep,
                 "time": start_time_fov + timestep * time_between_timesteps,
                 "channels": tuple(dataclasses.asdict(channel) for channel in channels),
