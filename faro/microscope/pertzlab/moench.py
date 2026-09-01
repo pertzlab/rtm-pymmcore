@@ -113,8 +113,8 @@ class MoenchCMMCorePlus(pymmcore_plus.CMMCorePlus):
         self._pending_moves = set()  # stages commanded to move, not yet arrived
         self._verifying_filter = False  # guards the verify's own turret moves
         self._dmd_live_hook = None  # set via set_dmd_live_hook
-        self._last_dmd_wake = 0.0
-        self._dmd_reset_connected = False
+        self._last_dmd_arm = 0.0
+        self._dmd_stale_connected = False
 
     # --- DMD live-pattern self-healing ------------------------------------
     # The Mosaic3 holds a pattern for at most its ExposureTime (200 s max)
@@ -125,41 +125,54 @@ class MoenchCMMCorePlus(pymmcore_plus.CMMCorePlus):
     # the DMD (it injects a pattern into every event) and this must stay out
     # of the way.
 
+    #: Re-arm the pattern when the last display is older than this. The
+    #: Mosaic3 parks (goes dark) once its ExposureTime elapses after a
+    #: display, camera triggers do NOT re-arm it, and the hold exposure is
+    #: 200 s (Moench.DMD_HOLD_EXPOSURE_MS, datasheet max), so 150 s re-arms
+    #: with margin. Displays are kept RARE on purpose: a display racing an
+    #: open camera frame lights only part of that frame (measured on the
+    #: scope), so per-capture re-displays cause flicker.
+    DMD_ARM_STALE_S: float = 150.0
+    #: Pause after re-arming so the mirror commit settles before the capture.
+    DMD_REFRESH_SETTLE_S: float = 0.05
+
     def set_dmd_live_hook(self, hook) -> None:
         """Install the callable that re-displays the DMD live pattern.
 
         Pass ``dmd.display_livemode`` (or None to disable). The pattern is
-        re-displayed before snaps and live-view starts whenever no MDA is
-        running.
+        re-armed before a snap when stale, before every live-view start, and
+        on the first capture after an MDA (the run leaves its own pattern,
+        possibly a stim mask, on the mirrors).
         """
         self._dmd_live_hook = hook
-        if hook is not None and not self._dmd_reset_connected:
-            # a run leaves a stim mask or per-event pattern on the mirrors,
-            # so the next interactive capture must always refresh
-            self._dmd_reset_connected = True
-            self.mda.events.sequenceFinished.connect(self._reset_dmd_wake_stamp)
+        if hook is not None and not self._dmd_stale_connected:
+            self._dmd_stale_connected = True
+            self.mda.events.sequenceFinished.connect(self._mark_dmd_stale)
 
-    def _reset_dmd_wake_stamp(self, *_) -> None:
-        self._last_dmd_wake = 0.0
+    def _mark_dmd_stale(self, *_) -> None:
+        self._last_dmd_arm = 0.0
 
     def _ensure_dmd_pattern(self, force: bool = False) -> None:
         hook = self._dmd_live_hook
         if hook is None or self.mda.is_running():
             return
         now = time.monotonic()
-        if not force and now - self._last_dmd_wake < 2.0:
-            return  # keep tight snap loops cheap
-        self._last_dmd_wake = now
+        if not force and now - self._last_dmd_arm < self.DMD_ARM_STALE_S:
+            return
         try:
             hook()
         except Exception as e:
             logger.warning("DMD live-pattern refresh failed: %s", e)
+            return
+        self._last_dmd_arm = now
+        time.sleep(self.DMD_REFRESH_SETTLE_S)
 
     def snapImage(self) -> None:  # noqa: N802
         self._ensure_dmd_pattern()
         super().snapImage()
 
     def startContinuousSequenceAcquisition(self, *args) -> None:  # noqa: N802
+        # always re-arm here: no frame is open yet, so the display is free
         self._ensure_dmd_pattern(force=True)
         super().startContinuousSequenceAcquisition(*args)
 
@@ -458,6 +471,14 @@ class MoenchCMMCorePlus(pymmcore_plus.CMMCorePlus):
 
 
 class KeepDMDAlive:
+    #: Refresh cadence during live view. Must stay well under the 200 s hold
+    #: exposure: the Mosaic3 parks (dark) once ExposureTime elapses after a
+    #: display and camera triggers do not re-arm it, so long live sessions
+    #: need a periodic re-display. Keep it long: a display racing an open
+    #: frame lights only part of that frame, so every refresh risks one
+    #: dimmed live frame.
+    REFRESH_INTERVAL_S: float = 60.0
+
     def __init__(self, mmc, dmd):
         self.mmc = mmc
         self.dmd = dmd
@@ -485,27 +506,38 @@ class KeepDMDAlive:
         if self.thread is not None and self.thread.is_alive():
             return
         self._stop_event.clear()
-        self.last_wakeup = 0.0
+        # the core re-arms the pattern right before the live start, so the
+        # first periodic refresh can wait a full interval
+        self.last_wakeup = time.time()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
 
     def _run(self):
         while not self._stop_event.is_set():
             current_time = time.time()
-            if current_time - self.last_wakeup > 60:  # Wake up every minute
+            # never touch the DMD while an MDA runs, whatever the signal
+            # ordering: the engine drives it per event and a refresh could
+            # overwrite a stim mask between upload and trigger
+            if (
+                current_time - self.last_wakeup > self.REFRESH_INTERVAL_S
+                and not self.mmc.mda.is_running()
+            ):
                 self.wakeup_dmd()
                 self.last_wakeup = current_time
             # Event.wait lets stop() break out immediately instead of
-            # eating up to 5 s of teardown time per session.
-            if self._stop_event.wait(timeout=5):
+            # eating teardown time.
+            if self._stop_event.wait(timeout=1):
                 return
 
     def stop(self, *_):
-        """Stop the refresh thread and reset the SLM; no-op if not running.
+        """Stop the refresh thread; no-op if not running.
 
         Connected to ``sequenceAcquisitionStopped``, which also fires when the
-        MDA stops a live stream that was never running, so the idle case must
-        leave the SLM alone. ``*_`` absorbs the signal's camera-label payload.
+        MDA stops a live stream that was never running. The SLM is left
+        holding its current pattern (the hold exposure keeps it up for
+        200 s), so snaps right after a live stop still see light; parking it
+        here made the first captures after every live stop dark.
+        ``*_`` absorbs the signal's camera-label payload.
         """
         _set_c_numeric_locale()
         if self.thread is None:
@@ -514,8 +546,6 @@ class KeepDMDAlive:
         if self.thread.is_alive():
             self.thread.join()
         self.thread = None
-        self.mmc.setSLMExposure(self.mmc.getSLMDevice(), 100)
-        self.mmc.displaySLMImage(self.mmc.getSLMDevice())
 
 
 class Moench(PyMMCoreMicroscope):
