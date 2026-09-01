@@ -112,6 +112,56 @@ class MoenchCMMCorePlus(pymmcore_plus.CMMCorePlus):
         self._z_targets = {}  # device label -> z
         self._pending_moves = set()  # stages commanded to move, not yet arrived
         self._verifying_filter = False  # guards the verify's own turret moves
+        self._dmd_live_hook = None  # set via set_dmd_live_hook
+        self._last_dmd_wake = 0.0
+        self._dmd_reset_connected = False
+
+    # --- DMD live-pattern self-healing ------------------------------------
+    # The Mosaic3 holds a pattern for at most its ExposureTime (200 s max)
+    # and then parks the mirrors, which blacks out everything downstream of
+    # the DMD. Interactive captures bypass the MDA engine (napari's snap and
+    # live view call the core directly), so the core re-displays the DMD's
+    # live-view pattern on demand before them. During an MDA the engine owns
+    # the DMD (it injects a pattern into every event) and this must stay out
+    # of the way.
+
+    def set_dmd_live_hook(self, hook) -> None:
+        """Install the callable that re-displays the DMD live pattern.
+
+        Pass ``dmd.display_livemode`` (or None to disable). The pattern is
+        re-displayed before snaps and live-view starts whenever no MDA is
+        running.
+        """
+        self._dmd_live_hook = hook
+        if hook is not None and not self._dmd_reset_connected:
+            # a run leaves a stim mask or per-event pattern on the mirrors,
+            # so the next interactive capture must always refresh
+            self._dmd_reset_connected = True
+            self.mda.events.sequenceFinished.connect(self._reset_dmd_wake_stamp)
+
+    def _reset_dmd_wake_stamp(self, *_) -> None:
+        self._last_dmd_wake = 0.0
+
+    def _ensure_dmd_pattern(self, force: bool = False) -> None:
+        hook = self._dmd_live_hook
+        if hook is None or self.mda.is_running():
+            return
+        now = time.monotonic()
+        if not force and now - self._last_dmd_wake < 2.0:
+            return  # keep tight snap loops cheap
+        self._last_dmd_wake = now
+        try:
+            hook()
+        except Exception as e:
+            logger.warning("DMD live-pattern refresh failed: %s", e)
+
+    def snapImage(self) -> None:  # noqa: N802
+        self._ensure_dmd_pattern()
+        super().snapImage()
+
+    def startContinuousSequenceAcquisition(self, *args) -> None:  # noqa: N802
+        self._ensure_dmd_pattern(force=True)
+        super().startContinuousSequenceAcquisition(*args)
 
     def _is_managed_stage(self, label: str) -> bool:
         return bool(label) and label in (
@@ -471,7 +521,7 @@ class KeepDMDAlive:
 class Moench(PyMMCoreMicroscope):
     MICROMANAGER_PATH = "C:\\Program Files\\Micro-Manager-2.0_api75"
     MICROMANAGER_CONFIG = (
-        "C:\\faro\\pertzlab_mic_configs\\micromanager\\Moench\\TiMoench.cfg"
+        "C:\\faro\\pertzlab_mic_configs\\micromanager\\Moench\\TiMoench_UV.cfg"
     )
     USE_AUTOFOCUS_EVENT = False
     USE_ONLY_PFS = True
@@ -635,6 +685,11 @@ class Moench(PyMMCoreMicroscope):
             self.wakeup_dmd.run
         )
         self.mmc.events.sequenceAcquisitionStopped.connect(self.wakeup_dmd.stop)
+        # Interactive snaps and live starts bypass the engine, so the core
+        # re-displays the live pattern on demand (parked mirrors otherwise
+        # black out any capture until a manual all_on()).
+        if hasattr(self.mmc, "set_dmd_live_hook"):
+            self.mmc.set_dmd_live_hook(self.dmd.display_livemode)
 
         self.image_height = self.mmc.getImageHeight()
         self.image_width = self.mmc.getImageWidth()
@@ -755,6 +810,10 @@ class Moench(PyMMCoreMicroscope):
                 self.mmc.events.sequenceAcquisitionStopped.disconnect(wakeup.stop)
             with suppress(Exception):
                 wakeup.stop()
+        # a late snap must not call into the DMD while devices unload
+        if hasattr(self.mmc, "set_dmd_live_hook"):
+            with suppress(Exception):
+                self.mmc.set_dmd_live_hook(None)
         super()._teardown_hardware()
 
     def register_engine(self, force: bool = False) -> None:
